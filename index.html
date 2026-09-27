@@ -76,7 +76,7 @@ const TH=[[5.6,97.3],[20.5,105.7]];
 
 const map=L.map("map",{zoomControl:false,preferCanvas:true,maxBounds:[[3,94],[23,109]],maxBoundsViscosity:1,minZoom:5}).fitBounds(TH);
 L.control.zoom({position:"bottomright"}).addTo(map);
-L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",{maxZoom:19,attribution:'&copy; OpenStreetMap &copy; CARTO · ข้อมูลน้ำ: ThaiWater (สสน.)'}).addTo(map);
+L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · ข้อมูลน้ำ: ThaiWater (สสน.)'}).addTo(map);
 const gWater=L.layerGroup().addTo(map),gRain=L.layerGroup().addTo(map),gCam=L.layerGroup().addTo(map);
 let riskOnly=false,water=[];
 const $=id=>document.getElementById(id);
@@ -107,7 +107,7 @@ async function load(){
     gRain.clearLayers();let heavy=0;
     (rn.data||[]).forEach(r=>{const s=r.station,mm=+r.rain_24h;if(!s?.tele_station_lat||!(mm>=10))return;
       if(mm>90)heavy++;
-      L.circleMarker([s.tele_station_lat,s.tele_station_long],{radius:Math.min(4+mm/12,18),stroke:false,fillColor:"#7dd3fc",fillOpacity:mm>90?.55:.3,interactive:true})
+      L.circleMarker([s.tele_station_lat,s.tele_station_long],{radius:Math.min(4+mm/12,18),stroke:false,fillOpacity:mm>90?.45:.2,fillColor:"#0ea5e9",interactive:true})
        .bindPopup(`<div class="pop"><b>${esc(s.tele_station_name?.th)}</b><br>ฝน 24 ชม. <b>${mm}</b> มม.<br><span class="m">${esc(place(r.geocode))}<br>${esc(r.rainfall_datetime)}</span></div>`)
        .addTo(gRain)});
     $("nr").textContent=heavy;
