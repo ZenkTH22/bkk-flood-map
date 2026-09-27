@@ -1,9 +1,8 @@
 <!doctype html>
 <html lang="th"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>แผนที่น้ำท่วม กทม.</title>
+<title>แผนที่น้ำท่วมไทย</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.13/hls.min.js"></script>
 <style>
 :root{--bg:#0b1618;--card:#12211fee;--line:#22393c;--tx:#e3eeef;--mut:#8ea7ab;--acc:#3cb6cf}
 *{box-sizing:border-box}
@@ -24,13 +23,11 @@ button.on{background:var(--acc);color:#0b1618;border-color:var(--acc)}
 .leaflet-popup-content{margin:10px;min-width:220px}
 .leaflet-popup-content-wrapper,.leaflet-popup-tip{background:#12211f;color:var(--tx)}
 .pop b{font-size:14px}.pop .m{color:var(--mut);font-size:12px}
-.pop video{width:300px;max-width:70vw;aspect-ratio:16/9;background:#000;border-radius:6px;display:block;margin-top:6px}
-.cam{font-size:20px;line-height:1;filter:drop-shadow(0 1px 2px #000)}
 @media (max-width:480px){.panel{top:6px;left:6px;right:6px;padding:8px}.sum b{font-size:15px}}
 </style></head><body>
 <div id="map"></div>
 <div class="panel">
-  <h1>สถานการณ์น้ำ กรุงเทพฯ–สมุทรปราการ</h1>
+  <h1>สถานการณ์น้ำท่วมทั่วประเทศไทย</h1>
   <p class="sub" id="upd">กำลังโหลดข้อมูล…</p>
   <div class="sum">
     <div><b id="n5" style="color:#e5484d">–</b><span>ล้นตลิ่ง</span></div>
@@ -41,43 +38,23 @@ button.on{background:var(--acc);color:#0b1618;border-color:var(--acc)}
   <div class="row">
     <button id="bRisk">เฉพาะเสี่ยง</button>
     <button id="bRain" class="on">ฝน 24 ชม.</button>
-    <button id="bCam" class="on">กล้อง CCTV</button>
-    <button id="bBkk">กลับ กทม.</button>
+    <button id="bAll">ทั้งประเทศ</button>
   </div>
   <div class="leg">
     <span><i style="background:#e5484d"></i>ล้นตลิ่ง</span><span><i style="background:#3b82f6"></i>มาก</span>
     <span><i style="background:#30a46c"></i>ปกติ</span><span><i style="background:#eab308"></i>น้อย</span>
-    <span><i style="background:#a16207"></i>วิกฤตน้อย</span><span>📷 กล้องสด</span>
+    <span><i style="background:#a16207"></i>วิกฤตน้อย</span>
   </div>
 </div>
 <script>
 const API="https://api-v3.thaiwater.net/api/v1/thaiwater30/public/";
 const LV={1:["น้ำน้อยวิกฤต","#a16207"],2:["น้ำน้อย","#eab308"],3:["ปกติ","#30a46c"],4:["น้ำมาก","#3b82f6"],5:["ล้นตลิ่ง","#e5484d"]};
-const BKK=[[13.62,100.40],[13.95,100.78]];
-// พิกัดกล้องเป็นค่าประมาณจากชื่อสถานที่
-const CAMS=[
-["บางนา-ตราด ใกล้แยกศรีเอี่ยม",13.6545,100.6720,"https://camera1.iticfoundation.org/hls/10.8.0.21_8001.m3u8"],
-["บางนา-ตราด ใกล้แยกบางนา",13.6680,100.6050,"https://camera1.iticfoundation.org/hls/10.8.0.21_8002.m3u8"],
-["บางนา-บางปะกง กม.6",13.6500,100.6980,"https://camerai1.iticfoundation.org/pass/180.180.242.207:1935/Phase3/PER_3_009_IN.stream/playlist.m3u8"],
-["สุวินทวงศ์ มีนบุรี ขาเข้า",13.8110,100.7470,"https://camerai1.iticfoundation.org/pass/180.180.242.207:1935/Phase9/PER_9_027_IN.stream/playlist.m3u8"],
-["สุวินทวงศ์ มีนบุรี ขาออก",13.8105,100.7500,"https://camerai1.iticfoundation.org/pass/180.180.242.207:1935/Phase9/PER_9_027_OUT.stream/playlist.m3u8"],
-["วิภาวดี ดอนเมือง มุ่งหน้าหลักสี่",13.9000,100.5960,"https://camerai1.iticfoundation.org/pass/180.180.242.207:1935/Phase3/PER_3_008_IN.stream/playlist.m3u8"],
-["แยกประชานิเวศน์",13.8490,100.5530,"https://camerai1.iticfoundation.org/hls/charlie-new5.m3u8"],
-["MRT วงศ์สว่าง",13.8290,100.5270,"https://camerai1.iticfoundation.org/hls/charlie-new-tran-9.m3u8"],
-["ประชานุกูลไปวงศ์สว่าง",13.8250,100.5380,"https://camerai1.iticfoundation.org/hls/cl212-d.m3u8"],
-["ศรีรัช เหนือกำแพงเพชร",13.8040,100.5510,"https://camera1.iticfoundation.org/hls/10.8.0.19_8802.m3u8"],
-["ศรีรัช ใต้กำแพงเพชร",13.8000,100.5530,"https://camera1.iticfoundation.org/hls/10.8.0.19_8801.m3u8"],
-["พระราม 4 แยกทางด่วน",13.7200,100.5570,"https://camera1.iticfoundation.org/hls/10.8.0.14_8001.m3u8"],
-["พระราม 4 แยกทางด่วน (2)",13.7190,100.5595,"https://camera1.iticfoundation.org/hls/10.8.0.14_8002.m3u8"],
-["สาทร หน้าสถานทูตเยอรมนี",13.7225,100.5420,"https://camera1.iticfoundation.org/hls/10.8.0.15_8552.m3u8"],
-["เชิงสะพานตากสิน ฝั่งสาทร",13.7190,100.5130,"https://camera1.iticfoundation.org/hls/10.8.0.18_8002.m3u8"],
-["รพ.บางปะกอก 9",13.7000,100.4860,"https://camera1.iticfoundation.org/hls/10.8.0.22_8554.m3u8"]
-];
+const TH=[[5.6,97.3],[20.5,105.7]];
 
-const map=L.map("map",{zoomControl:false,preferCanvas:true}).fitBounds(BKK);
+const map=L.map("map",{zoomControl:false,preferCanvas:true,maxBounds:[[3,94],[23,109]],maxBoundsViscosity:1,minZoom:5}).fitBounds(TH);
 L.control.zoom({position:"bottomright"}).addTo(map);
 L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",{maxZoom:19,attribution:'&copy; OpenStreetMap &copy; CARTO · ข้อมูลน้ำ: ThaiWater (สสน.)'}).addTo(map);
-const gWater=L.layerGroup().addTo(map),gRain=L.layerGroup().addTo(map),gCam=L.layerGroup().addTo(map);
+const gWater=L.layerGroup().addTo(map),gRain=L.layerGroup().addTo(map);
 let riskOnly=false,water=[];
 const $=id=>document.getElementById(id);
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -115,31 +92,9 @@ async function load(){
   }catch(e){$("upd").textContent="โหลดข้อมูลไม่สำเร็จ จะลองใหม่อัตโนมัติ";setTimeout(load,60000)}
 }
 
-// กล้อง: สร้างผู้เล่น HLS เฉพาะตอนเปิด popup, ปิดแล้วทำลายทิ้ง
-const camIcon=L.divIcon({className:"cam",html:"📷",iconSize:[22,22],iconAnchor:[11,11]});
-CAMS.forEach(([t,lat,lng,u])=>{
-  const m=L.marker([lat,lng],{icon:camIcon}).bindPopup(`<div class="pop"><b>${esc(t)}</b> <span class="m st">กำลังโหลด…</span><video muted playsinline controls></video></div>`,{maxWidth:340});
-  let h=null;
-  m.on("popupopen",e=>{
-    const el=e.popup.getElement(),v=el.querySelector("video"),st=el.querySelector(".st");
-    const ok=()=>{v.play().catch(()=>{});st.textContent="● สด";st.style.color="#f09a52"};
-    if(window.Hls&&Hls.isSupported()){
-      let retry=0;
-      h=new Hls({liveSyncDurationCount:4,liveMaxLatencyDurationCount:10,maxBufferLength:20,backBufferLength:10,capLevelToPlayerSize:true,fragLoadingMaxRetry:6,manifestLoadingMaxRetry:6,maxBufferHole:1});
-      h.loadSource(u);h.attachMedia(v);h.on(Hls.Events.MANIFEST_PARSED,ok);
-      h.on(Hls.Events.ERROR,(_,x)=>{if(!x.fatal)return;
-        if(x.type===Hls.ErrorTypes.MEDIA_ERROR&&retry++<3)return h.recoverMediaError();
-        if(x.type===Hls.ErrorTypes.NETWORK_ERROR&&retry++<5)return setTimeout(()=>h&&h.startLoad(),2000*retry);
-        st.textContent="ออฟไลน์";st.style.color=""});
-    }else if(v.canPlayType("application/vnd.apple.mpegurl")){v.src=u;v.addEventListener("loadedmetadata",ok)}
-  });
-  m.on("popupclose",()=>{if(h){h.destroy();h=null}});
-  m.addTo(gCam);
-});
-
 const tog=(b,g)=>{$(b).onclick=()=>{const on=map.hasLayer(g);on?map.removeLayer(g):map.addLayer(g);$(b).classList.toggle("on",!on)}};
-tog("bRain",gRain);tog("bCam",gCam);
+tog("bRain",gRain);
 $("bRisk").onclick=()=>{riskOnly=!riskOnly;$("bRisk").classList.toggle("on",riskOnly);drawWater()};
-$("bBkk").onclick=()=>map.fitBounds(BKK);
+$("bAll").onclick=()=>map.fitBounds(TH);
 load();setInterval(load,600000);
 </script></body></html>
