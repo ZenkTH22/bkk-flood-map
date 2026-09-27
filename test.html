@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="th"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>กล้องสด กทม.–สมุทรปราการ</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.13/hls.min.js"></script>
+<style>
+body{margin:0;background:#0b1618;color:#e3eeef;font:14px/1.5 system-ui,"Leelawadee UI",sans-serif;padding:16px}
+h1{font-size:22px;margin:0 0 4px}.sub{color:#8ea7ab;margin:0 0 12px}
+.bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+button{background:#12211f;color:#e3eeef;border:1px solid #22393c;border-radius:999px;padding:6px 14px;cursor:pointer;font:inherit}
+button.on{background:#3cb6cf;color:#0b1618;border-color:#3cb6cf}
+#g{display:grid;grid-template-columns:repeat(auto-fill,minmax(380px,1fr));gap:12px}
+.c{background:#12211f;border:1px solid #22393c;border-radius:10px;padding:8px}
+.t{display:flex;justify-content:space-between;gap:8px;margin-bottom:6px;font-weight:600}
+.st{font-weight:400;color:#8ea7ab;white-space:nowrap}.st.live{color:#f09a52}
+video{width:100%;aspect-ratio:16/9;background:#000;border-radius:6px;display:block}
+</style></head><body>
+<h1>กล้องสด กรุงเทพฯ–สมุทรปราการ</h1>
+<p class="sub">สตรีมจาก iTIC Foundation / กรมทางหลวง · คลิกวิดีโอเพื่อขยายเต็มจอ</p>
+<div class="bar" id="bar"></div>
+<div id="g"></div>
+<script>
+const C=[
+["ศรีนครินทร์/บางนา","บางนา-ตราด ใกล้แยกศรีเอี่ยม","https://camera1.iticfoundation.org/hls/10.8.0.21_8001.m3u8"],
+["ศรีนครินทร์/บางนา","บางนา-ตราด ใกล้แยกบางนา","https://camera1.iticfoundation.org/hls/10.8.0.21_8002.m3u8"],
+["ศรีนครินทร์/บางนา","บางนา-บางปะกง กม.6 (สมุทรปราการ)","https://camerai1.iticfoundation.org/pass/180.180.242.207:1935/Phase3/PER_3_009_IN.stream/playlist.m3u8"],
+["ตะวันออก","สุวินทวงศ์ มีนบุรี ขาเข้า","https://camerai1.iticfoundation.org/pass/180.180.242.207:1935/Phase9/PER_9_027_IN.stream/playlist.m3u8"],
+["ตะวันออก","สุวินทวงศ์ มีนบุรี ขาออก","https://camerai1.iticfoundation.org/pass/180.180.242.207:1935/Phase9/PER_9_027_OUT.stream/playlist.m3u8"],
+["เหนือ","วิภาวดี ดอนเมือง มุ่งหน้าหลักสี่","https://camerai1.iticfoundation.org/pass/180.180.242.207:1935/Phase3/PER_3_008_IN.stream/playlist.m3u8"],
+["เหนือ","แยกประชานิเวศน์","https://camerai1.iticfoundation.org/hls/charlie-new5.m3u8"],
+["เหนือ","MRT วงศ์สว่าง","https://camerai1.iticfoundation.org/hls/charlie-new-tran-9.m3u8"],
+["เหนือ","ประชานุกูลไปวงศ์สว่าง","https://camerai1.iticfoundation.org/hls/cl212-d.m3u8"],
+["กลางเมือง","ศรีรัช เหนือกำแพงเพชร","https://camera1.iticfoundation.org/hls/10.8.0.19_8802.m3u8"],
+["กลางเมือง","ศรีรัช ใต้กำแพงเพชร","https://camera1.iticfoundation.org/hls/10.8.0.19_8801.m3u8"],
+["กลางเมือง","พระราม 4 แยกทางด่วน","https://camera1.iticfoundation.org/hls/10.8.0.14_8001.m3u8"],
+["กลางเมือง","พระราม 4 แยกทางด่วน (2)","https://camera1.iticfoundation.org/hls/10.8.0.14_8002.m3u8"],
+["กลางเมือง","สาทร หน้าสถานทูตเยอรมนี","https://camera1.iticfoundation.org/hls/10.8.0.15_8552.m3u8"],
+["กลางเมือง","เชิงสะพานตากสิน ฝั่งสาทร","https://camera1.iticfoundation.org/hls/10.8.0.18_8002.m3u8"],
+["ฝั่งธน","รพ.บางปะกอก 9","https://camera1.iticfoundation.org/hls/10.8.0.22_8554.m3u8"]
+];
+const zones=["ทั้งหมด",...new Set(C.map(c=>c[0]))];let players=[];
+const bar=document.getElementById("bar"),g=document.getElementById("g");
+zones.forEach((z,i)=>{const b=document.createElement("button");b.textContent=z;if(i===0)b.className="on";b.onclick=()=>{bar.querySelectorAll("button").forEach(x=>x.className="");b.className="on";show(z)};bar.appendChild(b)});
+function show(z){
+  players.forEach(p=>{io.unobserve(p.v.parentNode);p.stop()});players=[];g.innerHTML="";
+  C.filter(c=>z==="ทั้งหมด"||c[0]===z).forEach(([zone,t,u])=>{
+    const d=document.createElement("div");d.className="c";
+    d.innerHTML=`<div class="t"><span>${t}</span><span class="st">กำลังโหลด…</span></div>`;
+    const v=document.createElement("video");v.muted=true;v.playsInline=true;v.controls=true;d.appendChild(v);g.appendChild(d);
+    const st=d.querySelector(".st");
+    const ok=()=>{v.play().catch(()=>{});st.textContent="● สด";st.className="st live"};
+    if(window.Hls&&Hls.isSupported()){
+      const p={v,u,st,ok,h:null,retry:0};
+      p.start=()=>{if(p.h)return;
+        const h=new Hls({lowLatencyMode:false,liveSyncDurationCount:4,liveMaxLatencyDurationCount:10,maxBufferLength:20,maxMaxBufferLength:40,backBufferLength:10,capLevelToPlayerSize:true,startLevel:-1,enableWorker:true,
+          manifestLoadingMaxRetry:6,levelLoadingMaxRetry:6,fragLoadingMaxRetry:6,nudgeMaxRetry:10,maxBufferHole:1});
+        p.h=h;h.loadSource(u);h.attachMedia(v);
+        h.on(Hls.Events.MANIFEST_PARSED,ok);
+        h.on(Hls.Events.FRAG_BUFFERED,()=>{p.retry=0});
+        h.on(Hls.Events.ERROR,(e,x)=>{if(!x.fatal)return;
+          if(x.type===Hls.ErrorTypes.MEDIA_ERROR&&p.retry<3){p.retry++;h.recoverMediaError();return}
+          if(x.type===Hls.ErrorTypes.NETWORK_ERROR&&p.retry<5){p.retry++;st.textContent="กำลังเชื่อมใหม่…";st.className="st";setTimeout(()=>p.h&&h.startLoad(),2000*p.retry);return}
+          st.textContent="ออฟไลน์";st.className="st";p.stop()});
+      };
+      p.stop=()=>{if(p.h){p.h.destroy();p.h=null}};
+      // ค้างนาน → กระโดดกลับหา live edge
+      v.addEventListener("waiting",()=>{clearTimeout(p.w);p.w=setTimeout(()=>{if(p.h&&p.h.liveSyncPosition&&v.readyState<3)v.currentTime=p.h.liveSyncPosition},4000)});
+      v.addEventListener("playing",()=>clearTimeout(p.w));
+      io.observe(d);d._p=p;players.push(p);
+    }
+    else if(v.canPlayType("application/vnd.apple.mpegurl")){v.src=u;v.addEventListener("loadedmetadata",ok)}
+    else st.textContent="เบราว์เซอร์ไม่รองรับ";
+  });
+}
+// โหลดเฉพาะกล้องที่อยู่บนจอ — ลดแบนด์วิดท์ ไม่แย่งกันจนกระตุก
+const io=new IntersectionObserver(es=>es.forEach(e=>{const p=e.target._p;if(!p)return;
+  if(e.isIntersecting){p.start();p.v.play().catch(()=>{})}else{p.stop();p.st.textContent="พัก";p.st.className="st"}
+}),{rootMargin:"200px"});
+addEventListener("DOMContentLoaded",()=>show("ทั้งหมด"));
+</script></body></html>
