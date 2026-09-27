@@ -225,17 +225,25 @@ async function loadReps(){
   const {data}=await SB.from("reports").select("*").order("created_at").limit(2000);
   reps.clear();(data||[]).filter(r=>!r.parent_id).forEach(addRow);(data||[]).filter(r=>r.parent_id).forEach(addRow);drawReps();
 }
+// หาชื่อสถานที่จากพิกัด (OpenStreetMap Nominatim) เช่น "ซอยลาดพร้าว 71, แขวงลาดพร้าว, เขตลาดพร้าว, กรุงเทพมหานคร"
+async function placeName(ll){
+  const r=await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${ll.lat}&lon=${ll.lng}&zoom=18&accept-language=th`);
+  const j=await r.json(),a=j.address||{};
+  const parts=[j.name||a.road||a.neighbourhood,a.quarter||a.village||a.subdistrict||a.hamlet,a.suburb||a.district||a.county||a.town,a.city||a.province||a.state];
+  return [...new Set(parts.filter(Boolean))].join(", ").slice(0,80);
+}
 function openForm(latlng){
   setPick(false);
   repPop=L.popup({maxWidth:320}).setLatLng(latlng).setContent(`<div class="pop frm"><b>📍 รายงานจุดน้ำท่วม</b>
-    <input class="place" maxlength="80" placeholder="ชื่อสถานที่ เช่น ซอยลาดพร้าว 71 หน้าเซเว่น">
+    <input class="place" maxlength="80" placeholder="กำลังหาชื่อสถานที่…">
     ${lvlBtns("pond")}<textarea class="note" maxlength="200" placeholder="หมายเหตุ (ไม่บังคับ) เช่น น้ำสูงระดับเข่า"></textarea>
     <button class="send">ส่งรายงาน</button><span class="err"></span><span class="m">ข้อมูลเปิดเผยต่อสาธารณะ ห้ามใส่ข้อมูลส่วนตัว</span></div>`).openOn(map);
   const el=repPop.getElement();let lv="pond";
   el.querySelectorAll(".lvls button").forEach(b=>b.onclick=()=>{lv=b.dataset.l;el.querySelectorAll(".lvls button").forEach(x=>x.classList.toggle("on",x===b))});
-  el.querySelector(".place").focus();
-  el.querySelector(".send").onclick=async()=>{const place=el.querySelector(".place").value.trim();
-    if(place.length<2){el.querySelector(".err").textContent="กรุณาใส่ชื่อสถานที่";return}
+  const inp=el.querySelector(".place"),coord=`พิกัด ${latlng.lat.toFixed(5)}, ${latlng.lng.toFixed(5)}`;
+  placeName(latlng).then(n=>{if(!inp.value)inp.value=n||coord}).catch(()=>{if(!inp.value)inp.value=coord})
+    .finally(()=>inp.placeholder="ชื่อสถานที่ (แก้ได้)");
+  el.querySelector(".send").onclick=async()=>{const place=inp.value.trim()||coord;
     if(await send({lat:+latlng.lat.toFixed(6),lng:+latlng.lng.toFixed(6),place,level:lv,note:el.querySelector(".note").value.trim()||null},el))map.closePopup(repPop)};
 }
 function setPick(on){picking=on;$("bRep").classList.toggle("on",on);$("hint").classList.toggle("show",on);map.getContainer().style.cursor=on?"crosshair":""}
