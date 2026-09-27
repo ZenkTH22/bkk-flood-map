@@ -78,7 +78,7 @@ button.on{background:var(--acc);color:#0b1618;border-color:var(--acc)}
     <span><i style="background:#30a46c"></i>ปกติ</span><span><i style="background:#eab308"></i>น้อย</span>
     <span><i style="background:#a16207"></i>วิกฤตน้อย</span><span>📷 กล้องสด (คลิกดู)</span>
     <span>🟠 น้ำขัง · 🔴 ท่วมสูง · ✅ ลดแล้ว (ประชาชนรายงาน <b id="nrep">0</b> จุด)</span>
-    <span><i style="background:#a855f7"></i>ร้องเรียนน้ำท่วม Traffy Fondue 24 ชม.</span>
+    <span><i style="background:#a855f7"></i>ร้องเรียนน้ำท่วม Traffy Fondue ~4 ชม. ล่าสุด</span>
   </div>
   <div id="hint">แตะบนแผนที่ตรงจุดที่น้ำท่วม หรือ <button id="bGps">ใช้ตำแหน่งฉัน</button> <button id="bCancel">ยกเลิก</button></div>
 </div>
@@ -246,13 +246,13 @@ map.on("click",e=>{if(picking)openForm(e.latlng)});
 if(SB){loadReps();setInterval(drawReps,60000);
   SB.channel("reports").on("postgres_changes",{event:"INSERT",schema:"public",table:"reports"},p=>{addRow(p.new);drawReps()}).subscribe();}
 
-// Traffy Fondue + ข่าว: GitHub Actions ดึงทุก 15 นาทีแล้ววางไว้ที่ branch "data"
-const FEEDS="https://raw.githubusercontent.com/ZenkTH22/bkk-flood-map/data/";
+// Traffy Fondue + ข่าว: ผ่าน Supabase Edge Function "feeds" (ดู supabase/functions/feeds)
+const FEEDS="https://lydzncyvjxxysfudwcmi.supabase.co/functions/v1/feeds?kind=";
 const TPHOTO="https://storage.googleapis.com/traffy_public_bucket/attachment/";
 const gTraffy=L.layerGroup().addTo(map);
 async function loadFeeds(){
   try{
-    const t=await fetch(FEEDS+"traffy.json?t="+Date.now()).then(r=>r.json());
+    const t=await fetch(FEEDS+"traffy").then(r=>r.json());
     gTraffy.clearLayers();
     t.items.forEach(x=>L.circleMarker([x.lat,x.lng],{radius:5,color:"#fff",weight:1,fillColor:"#a855f7",fillOpacity:.85})
       .bindPopup(()=>`<div class="pop"><b>ร้องเรียนผ่าน Traffy Fondue</b><br>${esc(x.text)}
@@ -261,7 +261,7 @@ async function loadFeeds(){
     $("nt").textContent=t.items.length;
   }catch(e){$("nt").textContent="–"}
   try{
-    const n=await fetch(FEEDS+"news.json?t="+Date.now()).then(r=>r.json());
+    const n=await fetch(FEEDS+"news").then(r=>r.json());
     $("newsList").innerHTML=n.items.map(x=>`<li><a href="${esc(x.link)}" target="_blank" rel="noopener">${esc(x.title)}</a><br><span class="m">${esc(x.source)} · ${ago(x.ts)}</span></li>`).join("")||'<li class="m">ยังไม่มีข่าว</li>';
   }catch(e){$("newsList").innerHTML='<li class="m">โหลดข่าวไม่สำเร็จ</li>'}
 }
