@@ -22,6 +22,7 @@ button.on{background:var(--acc);color:#0b1618;border-color:var(--acc)}
 .leg{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;font-size:11px;color:var(--mut)}
 .leg i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:4px;vertical-align:-1px}
 .cam{font-size:20px;line-height:1;filter:drop-shadow(0 1px 2px #000)}
+.pop img{width:300px;max-width:70vw;aspect-ratio:16/9;object-fit:cover;background:#000;border-radius:6px;display:block;margin-top:6px}
 .pop video{width:300px;max-width:70vw;aspect-ratio:16/9;background:#000;border-radius:6px;display:block;margin-top:6px}
 .leaflet-popup-content{margin:10px;min-width:220px}
 .leaflet-popup-content-wrapper,.leaflet-popup-tip{background:#12211f;color:var(--tx)}
@@ -41,7 +42,7 @@ button.on{background:var(--acc);color:#0b1618;border-color:var(--acc)}
   <div class="row">
     <button id="bRisk">เฉพาะเสี่ยง</button>
     <button id="bRain" class="on">ฝน 24 ชม.</button>
-    <button id="bCam" class="on">กล้อง CCTV</button>
+    <button id="bCam" class="on">กล้อง CCTV (<span id="nc">…</span>)</button>
     <button id="bAll">ทั้งประเทศ</button>
   </div>
   <div class="leg">
@@ -115,27 +116,44 @@ async function load(){
   }catch(e){$("upd").textContent="โหลดข้อมูลไม่สำเร็จ จะลองใหม่อัตโนมัติ";setTimeout(load,60000)}
 }
 
-// กล้อง: สร้างผู้เล่น HLS เฉพาะตอนเปิด popup, ปิดแล้วทำลายทิ้ง
+// กล้อง: ทั่วประเทศจาก Longdo Traffic + รายการเดิม; สร้างผู้เล่นเฉพาะตอนเปิด popup แล้วทำลายเมื่อปิด
 const camIcon=L.divIcon({className:"cam",html:"📷",iconSize:[22,22],iconAnchor:[11,11]});
-CAMS.forEach(([t,lat,lng,u])=>{
-  const m=L.marker([lat,lng],{icon:camIcon}).bindPopup(`<div class="pop"><b>${esc(t)}</b> <span class="m st">กำลังโหลด…</span><video muted playsinline controls></video></div>`,{maxWidth:340});
-  let h=null;
+function addCam(t,lat,lng,hls,img,org){
+  const body=hls?'<video muted playsinline controls></video>':'<img alt="">';
+  const m=L.marker([lat,lng],{icon:camIcon}).bindPopup(`<div class="pop"><b>${esc(t)}</b> <span class="m st">กำลังโหลด…</span>${body}<span class="m">${esc(org)}</span></div>`,{maxWidth:340});
+  let h=null,tm=null;
   m.on("popupopen",e=>{
-    const el=e.popup.getElement(),v=el.querySelector("video"),st=el.querySelector(".st");
-    const ok=()=>{v.play().catch(()=>{});st.textContent="● สด";st.style.color="#f09a52"};
+    const el=e.popup.getElement(),st=el.querySelector(".st");
+    const ok=()=>{st.textContent=hls?"● สด":"● ภาพนิ่ง";st.style.color="#f09a52"};
+    const off=()=>{st.textContent="ออฟไลน์";st.style.color=""};
+    if(!hls){const im=el.querySelector("img");im.onload=ok;im.onerror=off;
+      const f=()=>im.src=img+(img.includes("?")?"&":"?")+"t="+Date.now();f();tm=setInterval(f,5000);return}
+    const v=el.querySelector("video"),play=()=>{v.play().catch(()=>{});ok()};
     if(window.Hls&&Hls.isSupported()){
       let retry=0;
       h=new Hls({liveSyncDurationCount:4,liveMaxLatencyDurationCount:10,maxBufferLength:20,backBufferLength:10,capLevelToPlayerSize:true,fragLoadingMaxRetry:6,manifestLoadingMaxRetry:6,maxBufferHole:1});
-      h.loadSource(u);h.attachMedia(v);h.on(Hls.Events.MANIFEST_PARSED,ok);
+      h.loadSource(hls);h.attachMedia(v);h.on(Hls.Events.MANIFEST_PARSED,play);
       h.on(Hls.Events.ERROR,(_,x)=>{if(!x.fatal)return;
         if(x.type===Hls.ErrorTypes.MEDIA_ERROR&&retry++<3)return h.recoverMediaError();
         if(x.type===Hls.ErrorTypes.NETWORK_ERROR&&retry++<5)return setTimeout(()=>h&&h.startLoad(),2000*retry);
-        st.textContent="ออฟไลน์";st.style.color=""});
-    }else if(v.canPlayType("application/vnd.apple.mpegurl")){v.src=u;v.addEventListener("loadedmetadata",ok)}
+        off()});
+    }else if(v.canPlayType("application/vnd.apple.mpegurl")){v.src=hls;v.addEventListener("loadedmetadata",play)}
   });
-  m.on("popupclose",()=>{if(h){h.destroy();h=null}});
+  m.on("popupclose",()=>{if(h){h.destroy();h=null}clearInterval(tm)});
   m.addTo(gCam);
-});
+}
+async function loadCams(){
+  const seen=new Set();let n=0;
+  try{
+    const j=await fetch("https://traffic.longdo.com/camera.json").then(r=>r.json());
+    (j.item||[]).forEach(c=>{const lat=+c.latitude,lng=+c.longitude;if(!lat||!lng)return;
+      const img=/X\.X/.test(c.imgurl||"")?"":c.imgurl;if(!c.hls_url&&!img)return;
+      if(c.hls_url)seen.add(c.hls_url);addCam(c.title,lat,lng,c.hls_url,img,c.organization);n++});
+  }catch(e){}
+  CAMS.forEach(([t,lat,lng,u])=>{if(!seen.has(u)){addCam(t,lat,lng,u,"","iTIC");n++}});
+  $("nc").textContent=n;
+}
+loadCams();
 
 const tog=(b,g)=>{$(b).onclick=()=>{const on=map.hasLayer(g);on?map.removeLayer(g):map.addLayer(g);$(b).classList.toggle("on",!on)}};
 tog("bRain",gRain);tog("bCam",gCam);
