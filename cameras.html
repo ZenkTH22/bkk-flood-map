@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="th"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>กล้องสดทั่วไทย</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.13/hls.min.js"></script>
+<style>
+:root{--bg:#0b1618;--card:#12211f;--line:#22393c;--tx:#e3eeef;--mut:#8ea7ab;--acc:#3cb6cf}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.5 system-ui,"Leelawadee UI",sans-serif;padding:0 16px 16px}
+.tabs{position:sticky;top:0;z-index:10;display:flex;gap:4px;padding:10px 0;background:var(--bg)}
+.tabs a{padding:7px 14px;border-radius:999px;border:1px solid var(--line);color:var(--tx);text-decoration:none;font-weight:600}
+.tabs a.on{background:var(--acc);border-color:var(--acc);color:#0b1618}
+h1{font-size:20px;margin:4px 0 2px}.sub{color:var(--mut);margin:0 0 12px;font-size:13px}
+.ctl{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+select,input{background:var(--card);color:var(--tx);border:1px solid var(--line);border-radius:999px;padding:7px 14px;font:inherit}
+input{flex:1;min-width:180px}
+#g{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px}
+.c{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px}
+.t{display:flex;justify-content:space-between;gap:8px;margin-bottom:6px;font-weight:600;font-size:13px}
+.st{font-weight:400;color:var(--mut);white-space:nowrap}.st.live{color:#f09a52}
+video,.c img{width:100%;aspect-ratio:16/9;background:#000;border-radius:6px;display:block;object-fit:cover}
+.org{color:var(--mut);font-size:11px;margin-top:4px}
+@media (max-width:480px){#g{grid-template-columns:1fr}}
+</style></head><body>
+<nav class="tabs"><a href="./">🗺️ แผนที่น้ำท่วม</a><a href="cameras.html" class="on">📹 กล้องสด</a></nav>
+<h1>กล้องสดทั่วประเทศไทย</h1>
+<p class="sub" id="sub">กำลังโหลดรายชื่อกล้อง…</p>
+<div class="ctl">
+  <select id="prov"><option value="">ทุกจังหวัด</option></select>
+  <input id="q" type="search" placeholder="ค้นหา เช่น บางนา, แยก, ทางด่วน">
+</div>
+<div id="g"></div>
+<script>
+// กล้องเดิมจาก test.html ใช้เป็นสำรองเมื่อโหลดรายการจาก Longdo ไม่ได้
+const FALLBACK=[
+["(กรุงเทพมหานคร) บางนา-ตราด ใกล้แยกศรีเอี่ยม","https://camera1.iticfoundation.org/hls/10.8.0.21_8001.m3u8"],
+["(กรุงเทพมหานคร) บางนา-ตราด ใกล้แยกบางนา","https://camera1.iticfoundation.org/hls/10.8.0.21_8002.m3u8"],
+["(จ.สมุทรปราการ) บางนา-บางปะกง กม.6","https://camerai1.iticfoundation.org/pass/180.180.242.207:1935/Phase3/PER_3_009_IN.stream/playlist.m3u8"],
+["(กรุงเทพมหานคร) สุวินทวงศ์ มีนบุรี ขาเข้า","https://camerai1.iticfoundation.org/pass/180.180.242.207:1935/Phase9/PER_9_027_IN.stream/playlist.m3u8"],
+["(กรุงเทพมหานคร) สุวินทวงศ์ มีนบุรี ขาออก","https://camerai1.iticfoundation.org/pass/180.180.242.207:1935/Phase9/PER_9_027_OUT.stream/playlist.m3u8"],
+["(กรุงเทพมหานคร) วิภาวดี ดอนเมือง มุ่งหน้าหลักสี่","https://camerai1.iticfoundation.org/pass/180.180.242.207:1935/Phase3/PER_3_008_IN.stream/playlist.m3u8"],
+["(กรุงเทพมหานคร) แยกประชานิเวศน์","https://camerai1.iticfoundation.org/hls/charlie-new5.m3u8"],
+["(กรุงเทพมหานคร) MRT วงศ์สว่าง","https://camerai1.iticfoundation.org/hls/charlie-new-tran-9.m3u8"],
+["(กรุงเทพมหานคร) ประชานุกูลไปวงศ์สว่าง","https://camerai1.iticfoundation.org/hls/cl212-d.m3u8"],
+["(กรุงเทพมหานคร) ศรีรัช เหนือกำแพงเพชร","https://camera1.iticfoundation.org/hls/10.8.0.19_8802.m3u8"],
+["(กรุงเทพมหานคร) ศรีรัช ใต้กำแพงเพชร","https://camera1.iticfoundation.org/hls/10.8.0.19_8801.m3u8"],
+["(กรุงเทพมหานคร) พระราม 4 แยกทางด่วน","https://camera1.iticfoundation.org/hls/10.8.0.14_8001.m3u8"],
+["(กรุงเทพมหานคร) พระราม 4 แยกทางด่วน (2)","https://camera1.iticfoundation.org/hls/10.8.0.14_8002.m3u8"],
+["(กรุงเทพมหานคร) สาทร หน้าสถานทูตเยอรมนี","https://camera1.iticfoundation.org/hls/10.8.0.15_8552.m3u8"],
+["(กรุงเทพมหานคร) เชิงสะพานตากสิน ฝั่งสาทร","https://camera1.iticfoundation.org/hls/10.8.0.18_8002.m3u8"],
+["(กรุงเทพมหานคร) รพ.บางปะกอก 9","https://camera1.iticfoundation.org/hls/10.8.0.22_8554.m3u8"]
+].map(([title,hls])=>({title,hls,img:"",org:"iTIC"}));
+
+const $=id=>document.getElementById(id),g=$("g");
+const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+// ชื่อจาก Longdo ขึ้นต้นด้วย "(จ.xxx)" หรือ "(กรุงเทพมหานคร)"
+const provOf=t=>((t||"").match(/^\((?:จ\.)?([^)]+)\)/)||[])[1]||"อื่นๆ";
+const nameOf=t=>(t||"").replace(/^\([^)]*\)\s*/,"");
+let cams=[],players=[];
+
+// เล่นเฉพาะกล้องที่อยู่บนจอ ลดแบนด์วิดท์ ไม่แย่งกันจนกระตุก (ระบบเดิมจาก test.html)
+const io=new IntersectionObserver(es=>es.forEach(e=>{const p=e.target._p;if(!p)return;
+  if(e.isIntersecting)p.start();else{p.stop();p.st.textContent="พัก";p.st.className="st"}
+}),{rootMargin:"200px"});
+
+function card(c){
+  const d=document.createElement("div");d.className="c";
+  d.innerHTML=`<div class="t"><span>${esc(nameOf(c.title))}</span><span class="st">รอเลื่อนมาดู</span></div>${c.hls?'<video muted playsinline controls></video>':'<img alt="">'}<div class="org">${esc(provOf(c.title))} · ${esc(c.org)}</div>`;
+  const st=d.querySelector(".st"),ok=()=>{st.textContent=c.hls?"● สด":"● ภาพนิ่ง";st.className="st live"},off=()=>{st.textContent="ออฟไลน์";st.className="st"};
+  const p={st,h:null,tm:null};
+  if(c.hls){
+    const v=d.querySelector("video");
+    p.start=()=>{if(p.h)return;st.textContent="กำลังโหลด…";
+      if(!(window.Hls&&Hls.isSupported())){if(!v.src){v.src=c.hls;v.addEventListener("loadedmetadata",ok)}v.play().catch(()=>{});p.h=1;return}
+      let retry=0;
+      const h=p.h=new Hls({lowLatencyMode:false,liveSyncDurationCount:4,liveMaxLatencyDurationCount:10,maxBufferLength:20,maxMaxBufferLength:40,backBufferLength:10,capLevelToPlayerSize:true,
+        manifestLoadingMaxRetry:6,levelLoadingMaxRetry:6,fragLoadingMaxRetry:6,nudgeMaxRetry:10,maxBufferHole:1});
+      h.loadSource(c.hls);h.attachMedia(v);
+      h.on(Hls.Events.MANIFEST_PARSED,()=>{v.play().catch(()=>{});ok()});
+      h.on(Hls.Events.FRAG_BUFFERED,()=>{retry=0});
+      h.on(Hls.Events.ERROR,(_,x)=>{if(!x.fatal)return;
+        if(x.type===Hls.ErrorTypes.MEDIA_ERROR&&retry++<3)return h.recoverMediaError();
+        if(x.type===Hls.ErrorTypes.NETWORK_ERROR&&retry++<5){st.textContent="กำลังเชื่อมใหม่…";st.className="st";return setTimeout(()=>p.h===h&&h.startLoad(),2000*retry)}
+        off();p.stop()});
+    };
+    p.stop=()=>{if(p.h&&p.h.destroy)p.h.destroy();else if(p.h)v.pause();p.h=null};
+    // ค้างนาน → กระโดดกลับหา live edge
+    v.addEventListener("waiting",()=>{clearTimeout(p.w);p.w=setTimeout(()=>{if(p.h?.liveSyncPosition&&v.readyState<3)v.currentTime=p.h.liveSyncPosition},4000)});
+    v.addEventListener("playing",()=>clearTimeout(p.w));
+  }else{
+    const im=d.querySelector("img");im.onload=ok;im.onerror=off;
+    const f=()=>im.src=c.img+(c.img.includes("?")?"&":"?")+"t="+Date.now();
+    p.start=()=>{if(p.tm)return;f();p.tm=setInterval(f,5000)};
+    p.stop=()=>{clearInterval(p.tm);p.tm=null};
+  }
+  d._p=p;players.push({d,p});io.observe(d);return d;
+}
+
+function show(){
+  players.forEach(({d,p})=>{io.unobserve(d);p.stop()});players=[];g.innerHTML="";
+  const pv=$("prov").value,q=$("q").value.trim().toLowerCase();
+  const list=cams.filter(c=>(!pv||provOf(c.title)===pv)&&(!q||c.title.toLowerCase().includes(q)));
+  list.forEach(c=>g.appendChild(card(c)));
+  $("sub").textContent=`แสดง ${list.length} จาก ${cams.length} กล้อง · ที่มา: Longdo Traffic, iTIC, กรมทางหลวง · เล่นเฉพาะกล้องที่อยู่บนจอ`;
+}
+
+async function load(){
+  try{
+    const j=await fetch("https://traffic.longdo.com/camera.json").then(r=>r.json());
+    cams=(j.item||[]).map(c=>({title:c.title,hls:c.hls_url||"",img:/X\.X/.test(c.imgurl||"")?"":(c.imgurl||""),org:c.organization||""})).filter(c=>c.hls||c.img);
+  }catch(e){}
+  if(!cams.length)cams=FALLBACK;
+  const provs=[...new Set(cams.map(c=>provOf(c.title)))].sort((a,b)=>a==="กรุงเทพมหานคร"?-1:b==="กรุงเทพมหานคร"?1:a.localeCompare(b,"th"));
+  const n=p=>cams.filter(c=>provOf(c.title)===p).length;
+  $("prov").innerHTML='<option value="">ทุกจังหวัด</option>'+provs.map(p=>`<option value="${esc(p)}">${esc(p)} (${n(p)})</option>`).join("");
+  // เปิดมาที่กรุงเทพฯ ก่อน จะได้ไม่โหลดทั้ง 295 กล้องพร้อมกัน
+  if(provs.includes("กรุงเทพมหานคร"))$("prov").value="กรุงเทพมหานคร";
+  show();
+}
+$("prov").onchange=show;
+let qt;$("q").oninput=()=>{clearTimeout(qt);qt=setTimeout(show,300)};
+load();
+</script></body></html>
