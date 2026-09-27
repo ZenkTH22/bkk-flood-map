@@ -15,6 +15,20 @@ h1{font-size:17px;margin:0}
 .tabs{display:flex;gap:4px;margin:-2px 0 8px}
 .tabs a{padding:4px 11px;border-radius:999px;border:1px solid var(--line);color:var(--tx);text-decoration:none;font-size:13px;font-weight:600}
 .tabs a.on{background:var(--acc);border-color:var(--acc);color:#0b1618}
+#camView{position:absolute;inset:0;z-index:1100;overflow:auto;background:var(--bg);padding:10px 16px 16px}
+#camView[hidden]{display:none}
+#camView h1{font-size:20px;margin:4px 0 2px}
+.gctl{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.gctl select,.gctl input{background:#12211f;color:var(--tx);border:1px solid var(--line);border-radius:999px;padding:7px 14px;font:inherit}
+.gctl input{flex:1;min-width:180px}
+#grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px}
+.gc{background:#12211f;border:1px solid var(--line);border-radius:10px;padding:8px}
+.gc .t{display:flex;justify-content:space-between;gap:8px;margin-bottom:6px;font-weight:600;font-size:13px}
+.gc .st{font-weight:400;color:var(--mut);white-space:nowrap}.gc .st.live{color:#f09a52}
+.gc video,.gc img{width:100%;aspect-ratio:16/9;background:#000;border-radius:6px;display:block;object-fit:cover}
+.gc .org{display:flex;justify-content:space-between;color:var(--mut);font-size:11px;margin-top:4px}
+.gc .org a{color:var(--acc);text-decoration:none}
+@media (max-width:480px){#grid{grid-template-columns:1fr}#camView{padding:8px}}
 .sub{color:var(--mut);font-size:12px;margin:2px 0 8px}
 .sum{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:8px}
 .sum div{background:#0b1618;border-radius:8px;padding:6px;text-align:center}
@@ -59,7 +73,7 @@ button.on{background:var(--acc);color:#0b1618;border-color:var(--acc)}
 </style></head><body>
 <div id="map"></div>
 <div class="panel">
-  <nav class="tabs"><a href="./" class="on">🗺️ แผนที่น้ำท่วม</a><a href="cameras.html">📹 กล้องสด</a></nav>
+  <nav class="tabs"><a href="#map" class="on">🗺️ แผนที่น้ำท่วม</a><a href="#cams">📹 กล้องสด</a></nav>
   <h1>สถานการณ์น้ำท่วมทั่วประเทศไทย</h1>
   <p class="sub" id="upd">กำลังโหลดข้อมูล…</p>
   <div class="sum">
@@ -87,6 +101,16 @@ button.on{background:var(--acc);color:#0b1618;border-color:var(--acc)}
   </div>
   <div id="hint">แตะบนแผนที่ตรงจุดที่น้ำท่วม หรือ <button id="bGps">ใช้ตำแหน่งฉัน</button> <button id="bCancel">ยกเลิก</button></div>
 </div>
+<section id="camView" hidden>
+  <nav class="tabs"><a href="#map">🗺️ แผนที่น้ำท่วม</a><a href="#cams" class="on">📹 กล้องสด</a></nav>
+  <h1>กล้องสดทั่วประเทศไทย</h1>
+  <p class="sub" id="gSub">กำลังโหลดรายชื่อกล้อง…</p>
+  <div class="gctl">
+    <select id="gProv"><option value="">ทุกจังหวัด</option></select>
+    <input id="gQ" type="search" placeholder="ค้นหา เช่น บางนา, แยก, ทางด่วน">
+  </div>
+  <div id="grid"></div>
+</section>
 <div id="news"><h2>📰 ข่าวน้ำท่วม 24 ชม. <button id="bNewsX">✕</button></h2><ul id="newsList"><li class="m">กำลังโหลด…</li></ul></div>
 <script>
 const API="https://api-v3.thaiwater.net/api/v1/thaiwater30/public/";
@@ -178,17 +202,93 @@ function addCam(t,lat,lng,hls,img,org){
   });
   m.on("popupclose",()=>{if(h){h.destroy();h=null}clearInterval(tm)});
   m.addTo(gCam);
+  return m;
 }
+// ===== โหมดกล้อง: ตารางกล้องสด (ระบบเดิมจาก test.html) เล่นเฉพาะกล้องที่อยู่บนจอ =====
+const provOf=t=>((t||"").match(/^\((?:จ\.)?([^)]+)\)/)||[])[1]||"อื่นๆ";
+const nameOf=t=>(t||"").replace(/^\([^)]*\)\s*/,"");
+let gridPlayers=[],gridReady=false;
+const gridIO=new IntersectionObserver(es=>es.forEach(e=>{const p=e.target._p;if(!p)return;
+  if(e.isIntersecting)p.start();else{p.stop();p.st.textContent="พัก";p.st.className="st"}
+}),{rootMargin:"200px"});
+function gridCard(c){
+  const d=document.createElement("div");d.className="gc";
+  d.innerHTML=`<div class="t"><span>${esc(nameOf(c.title))}</span><span class="st">รอเลื่อนมาดู</span></div>${c.hls?'<video muted playsinline controls></video>':'<img alt="">'}<div class="org"><span>${esc(provOf(c.title))} · ${esc(c.org)}</span><a href="#map">📍 ดูบนแผนที่</a></div>`;
+  d.querySelector(".org a").onclick=e=>{e.preventDefault();setMode("map");map.setView([c.lat,c.lng],16);if(!map.hasLayer(gCam))$("bCam").click();c.marker.openPopup()};
+  const st=d.querySelector(".st"),ok=()=>{st.textContent=c.hls?"● สด":"● ภาพนิ่ง";st.className="st live"},off=()=>{st.textContent="ออฟไลน์";st.className="st"};
+  const p={st,h:null,tm:null};
+  if(c.hls){
+    const v=d.querySelector("video");
+    p.start=()=>{if(p.h)return;st.textContent="กำลังโหลด…";
+      if(!(window.Hls&&Hls.isSupported())){if(!v.src){v.src=c.hls;v.addEventListener("loadedmetadata",ok)}v.play().catch(()=>{});p.h=1;return}
+      let retry=0;
+      const h=p.h=new Hls({lowLatencyMode:false,liveSyncDurationCount:4,liveMaxLatencyDurationCount:10,maxBufferLength:20,maxMaxBufferLength:40,backBufferLength:10,capLevelToPlayerSize:true,
+        manifestLoadingMaxRetry:6,levelLoadingMaxRetry:6,fragLoadingMaxRetry:6,nudgeMaxRetry:10,maxBufferHole:1});
+      h.loadSource(c.hls);h.attachMedia(v);
+      h.on(Hls.Events.MANIFEST_PARSED,()=>{v.play().catch(()=>{});ok()});
+      h.on(Hls.Events.FRAG_BUFFERED,()=>{retry=0});
+      h.on(Hls.Events.ERROR,(_,x)=>{if(!x.fatal)return;
+        if(x.type===Hls.ErrorTypes.MEDIA_ERROR&&retry++<3)return h.recoverMediaError();
+        if(x.type===Hls.ErrorTypes.NETWORK_ERROR&&retry++<5){st.textContent="กำลังเชื่อมใหม่…";st.className="st";return setTimeout(()=>p.h===h&&h.startLoad(),2000*retry)}
+        off();p.stop()});
+    };
+    p.stop=()=>{if(p.h&&p.h.destroy)p.h.destroy();else if(p.h)v.pause();p.h=null};
+    // ค้างนาน → กระโดดกลับหา live edge
+    v.addEventListener("waiting",()=>{clearTimeout(p.w);p.w=setTimeout(()=>{if(p.h?.liveSyncPosition&&v.readyState<3)v.currentTime=p.h.liveSyncPosition},4000)});
+    v.addEventListener("playing",()=>clearTimeout(p.w));
+  }else{
+    const im=d.querySelector("img");im.onload=ok;im.onerror=off;
+    const f=()=>im.src=c.img+(c.img.includes("?")?"&":"?")+"t="+Date.now();
+    p.start=()=>{if(p.tm)return;f();p.tm=setInterval(f,5000)};
+    p.stop=()=>{clearInterval(p.tm);p.tm=null};
+  }
+  d._p=p;gridPlayers.push({d,p});return d;
+}
+function gridClear(){gridPlayers.forEach(({d,p})=>{gridIO.unobserve(d);p.stop()});gridPlayers=[];$("grid").innerHTML=""}
+function gridShow(){
+  gridClear();if(mode!=="cams")return;
+  const pv=$("gProv").value,q=$("gQ").value.trim().toLowerCase();
+  const list=camList.filter(c=>(!pv||provOf(c.title)===pv)&&(!q||c.title.toLowerCase().includes(q)));
+  list.forEach(c=>{const d=gridCard(c);$("grid").appendChild(d);gridIO.observe(d)});
+  $("gSub").textContent=`แสดง ${list.length} จาก ${camList.length} กล้อง · ที่มา: Longdo Traffic, iTIC, กรมทางหลวง · เล่นเฉพาะกล้องที่อยู่บนจอ`;
+}
+function gridInit(){
+  const n=p=>camList.filter(c=>provOf(c.title)===p).length;
+  const provs=[...new Set(camList.map(c=>provOf(c.title)))].sort((a,b)=>a==="กรุงเทพมหานคร"?-1:b==="กรุงเทพมหานคร"?1:a.localeCompare(b,"th"));
+  $("gProv").innerHTML='<option value="">ทุกจังหวัด</option>'+provs.map(p=>`<option value="${esc(p)}">${esc(p)} (${n(p)})</option>`).join("");
+  // เปิดมาที่กรุงเทพฯ ก่อน จะได้ไม่โหลดกล้องทั้งประเทศพร้อมกัน
+  if(provs.includes("กรุงเทพมหานคร"))$("gProv").value="กรุงเทพมหานคร";
+  gridReady=true;gridShow();
+}
+$("gProv").onchange=gridShow;
+let gqT;$("gQ").oninput=()=>{clearTimeout(gqT);gqT=setTimeout(gridShow,300)};
+
+// สลับโหมดด้วย #map / #cams (ออกจากโหมดกล้องแล้วหยุดวิดีโอทั้งหมด)
+let mode="map";
+function setMode(m){
+  mode=m==="cams"?"cams":"map";
+  if(location.hash!=="#"+mode)history.replaceState(null,"","#"+mode);
+  $("camView").hidden=mode!=="cams";
+  if(mode==="cams"){if(gridReady)gridShow()}else{gridClear();map.invalidateSize()}
+}
+addEventListener("hashchange",()=>setMode(location.hash.slice(1)));
+document.querySelectorAll('.tabs a').forEach(a=>a.onclick=e=>{e.preventDefault();setMode(a.getAttribute("href").slice(1))});
+setMode(location.hash.slice(1));
+
+// camList ใช้ร่วมกันทั้งหมุดบนแผนที่และตารางกล้อง (โหมดกล้อง)
+let camList=[];
 async function loadCams(){
-  const seen=new Set();let n=0;
+  const seen=new Set();
+  const add=(title,lat,lng,hls,img,org)=>camList.push({title,lat,lng,hls:hls||"",img:img||"",org:org||"",marker:addCam(title,lat,lng,hls,img,org)});
   try{
     const j=await fetch("https://traffic.longdo.com/camera.json").then(r=>r.json());
     (j.item||[]).forEach(c=>{const lat=+c.latitude,lng=+c.longitude;if(!lat||!lng)return;
       const img=/X\.X/.test(c.imgurl||"")?"":c.imgurl;if(!c.hls_url&&!img)return;
-      if(c.hls_url)seen.add(c.hls_url);addCam(c.title,lat,lng,c.hls_url,img,c.organization);n++});
+      if(c.hls_url)seen.add(c.hls_url);add(c.title,lat,lng,c.hls_url,img,c.organization)});
   }catch(e){}
-  CAMS.forEach(([t,lat,lng,u])=>{if(!seen.has(u)){addCam(t,lat,lng,u,"","iTIC");n++}});
-  $("nc").textContent=n;
+  CAMS.forEach(([t,lat,lng,u])=>{if(!seen.has(u))add("(กรุงเทพมหานคร) "+t,lat,lng,u,"","iTIC")});
+  $("nc").textContent=camList.length;
+  gridInit();
 }
 loadCams();
 
