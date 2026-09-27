@@ -4,6 +4,7 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.13/hls.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <style>
 :root{--bg:#0b1618;--card:#12211fee;--line:#22393c;--tx:#e3eeef;--mut:#8ea7ab;--acc:#3cb6cf}
 *{box-sizing:border-box}
@@ -27,6 +28,22 @@ button.on{background:var(--acc);color:#0b1618;border-color:var(--acc)}
 .leaflet-popup-content{margin:10px;min-width:220px}
 .leaflet-popup-content-wrapper,.leaflet-popup-tip{background:#12211f;color:var(--tx)}
 .pop b{font-size:14px}.pop .m{color:var(--mut);font-size:12px}
+.rep{font-size:22px;line-height:1;filter:drop-shadow(0 1px 2px #000)}
+.rep.old{opacity:.45}
+#bRep{background:#f97316;border-color:#f97316;color:#fff;font-weight:600}
+#bRep.on{background:#fff;color:#c2410c}
+#hint{display:none;margin-top:8px;padding:6px 8px;border-radius:8px;background:#f9731622;border:1px dashed #f97316;font-size:13px}
+#hint.show{display:block}
+.frm{display:grid;gap:6px;min-width:240px}
+.frm input,.frm textarea{width:100%;background:#0b1618;color:var(--tx);border:1px solid var(--line);border-radius:6px;padding:6px 8px;font:inherit;font-size:13px}
+.frm textarea{resize:vertical;min-height:44px}
+.lvls{display:flex;gap:4px}
+.lvls button,.acts button{flex:1;padding:6px 4px;font-size:12px}
+.lvls button.on{background:var(--acc);color:#0b1618}
+.acts{display:flex;gap:4px;margin-top:8px}
+.frm .send{background:#f97316;border-color:#f97316;color:#fff;font-weight:600}
+.err{color:#f87171;font-size:12px}
+.hist{margin:6px 0 0;padding-left:16px;font-size:12px;color:var(--mut)}
 @media (max-width:480px){.panel{top:6px;left:6px;right:6px;padding:8px}.sum b{font-size:15px}}
 </style></head><body>
 <div id="map"></div>
@@ -40,6 +57,7 @@ button.on{background:var(--acc);color:#0b1618;border-color:var(--acc)}
     <div><b id="nr" style="color:#7dd3fc">–</b><span>ฝน &gt;90 มม.</span></div>
   </div>
   <div class="row">
+    <button id="bRep">📍 รายงานน้ำท่วม</button>
     <button id="bRisk">เฉพาะเสี่ยง</button>
     <button id="bRain" class="on">ฝน 24 ชม.</button>
     <button id="bCam" class="on">กล้อง CCTV (<span id="nc">…</span>)</button>
@@ -49,7 +67,9 @@ button.on{background:var(--acc);color:#0b1618;border-color:var(--acc)}
     <span><i style="background:#e5484d"></i>ล้นตลิ่ง</span><span><i style="background:#3b82f6"></i>มาก</span>
     <span><i style="background:#30a46c"></i>ปกติ</span><span><i style="background:#eab308"></i>น้อย</span>
     <span><i style="background:#a16207"></i>วิกฤตน้อย</span><span>📷 กล้องสด (คลิกดู)</span>
+    <span>🟠 น้ำขัง · 🔴 ท่วมสูง · ✅ ลดแล้ว (ประชาชนรายงาน <b id="nrep">0</b> จุด)</span>
   </div>
+  <div id="hint">แตะบนแผนที่ตรงจุดที่น้ำท่วม หรือ <button id="bGps">ใช้ตำแหน่งฉัน</button> <button id="bCancel">ยกเลิก</button></div>
 </div>
 <script>
 const API="https://api-v3.thaiwater.net/api/v1/thaiwater30/public/";
@@ -154,6 +174,65 @@ async function loadCams(){
   $("nc").textContent=n;
 }
 loadCams();
+
+// รายงานจากประชาชน (Supabase): 1 จุด = แถวแรก + แถวอัปเดตที่ parent_id ชี้มา, แสดงสถานะล่าสุด
+const SB=window.supabase?.createClient("https://lydzncyvjxxysfudwcmi.supabase.co","sb_publishable_g1xwYxG4ZerADZIr7I2yiw_d5DW58zM");
+const RL={pond:["🟠","น้ำขัง"],high:["🔴","ท่วมสูง"],cleared:["✅","น้ำลดแล้ว"]};
+const gRep=L.layerGroup().addTo(map),reps=new Map();let picking=false,repPop=null;
+const ago=t=>{const m=Math.round((Date.now()-new Date(t))/60000);return m<1?"เมื่อกี้":m<60?m+" นาทีที่แล้ว":m<1440?Math.floor(m/60)+" ชม.ที่แล้ว":Math.floor(m/1440)+" วันที่แล้ว"};
+const lvlBtns=sel=>`<div class="lvls">${Object.entries(RL).map(([k,[e,n]])=>`<button type="button" data-l="${k}"${k===sel?' class="on"':""}>${e} ${n}</button>`).join("")}</div>`;
+async function send(row,el){
+  const err=el.querySelector(".err"),btn=el.querySelector(".send");btn.disabled=true;err.textContent="";
+  const {error}=await SB.from("reports").insert(row);
+  btn.disabled=false;if(error){err.textContent=error.message.includes("check")?"ข้อมูลไม่ถูกต้อง (ต้องอยู่ในประเทศไทย, ชื่อ 2–80 ตัวอักษร)":error.message;return false}
+  return true;
+}
+function drawReps(){
+  gRep.clearLayers();let n=0;
+  reps.forEach((rows,id)=>{
+    rows.sort((a,b)=>new Date(a.created_at)-new Date(b.created_at));
+    const root=rows[0],last=rows[rows.length-1],[e,name]=RL[last.level];
+    const old=Date.now()-new Date(last.created_at)>864e5;n++;
+    const hist=rows.slice(-4).reverse().map(r=>`<li>${RL[r.level][0]} ${RL[r.level][1]} · ${ago(r.created_at)}${r.note?" — "+esc(r.note):""}</li>`).join("");
+    const m=L.marker([root.lat,root.lng],{icon:L.divIcon({className:"rep"+(old?" old":""),html:e,iconSize:[24,24],iconAnchor:[12,12]}),zIndexOffset:500})
+      .bindPopup(`<div class="pop frm"><b>${esc(root.place)}</b><span>${e} <b>${name}</b> · <span class="m">อัปเดต ${ago(last.created_at)}</span></span>
+        <ul class="hist">${hist}</ul><span class="m">สถานะตอนนี้เป็นยังไง?</span>${lvlBtns(last.level)}
+        <input class="note" maxlength="200" placeholder="หมายเหตุ (ไม่บังคับ) เช่น ระดับเข่า รถเล็กผ่านไม่ได้">
+        <button class="send">อัปเดตสถานะ</button><span class="err"></span></div>`,{maxWidth:320});
+    m.on("popupopen",ev=>{const el=ev.popup.getElement();let lv=last.level;
+      el.querySelectorAll(".lvls button").forEach(b=>b.onclick=()=>{lv=b.dataset.l;el.querySelectorAll(".lvls button").forEach(x=>x.classList.toggle("on",x===b))});
+      el.querySelector(".send").onclick=async()=>{if(await send({parent_id:id,lat:root.lat,lng:root.lng,place:root.place,level:lv,note:el.querySelector(".note").value.trim()||null},el))m.closePopup()}});
+    m.addTo(gRep);
+  });
+  $("nrep").textContent=n;
+}
+function addRow(r){const id=r.parent_id||r.id;if(!r.parent_id&&!reps.has(id))reps.set(id,[]);if(!reps.has(id))return;
+  const a=reps.get(id);if(!a.some(x=>x.id===r.id))a.push(r)}
+async function loadReps(){
+  if(!SB)return;
+  const {data}=await SB.from("reports").select("*").order("created_at").limit(2000);
+  reps.clear();(data||[]).filter(r=>!r.parent_id).forEach(addRow);(data||[]).filter(r=>r.parent_id).forEach(addRow);drawReps();
+}
+function openForm(latlng){
+  setPick(false);
+  repPop=L.popup({maxWidth:320}).setLatLng(latlng).setContent(`<div class="pop frm"><b>📍 รายงานจุดน้ำท่วม</b>
+    <input class="place" maxlength="80" placeholder="ชื่อสถานที่ เช่น ซอยลาดพร้าว 71 หน้าเซเว่น">
+    ${lvlBtns("pond")}<textarea class="note" maxlength="200" placeholder="หมายเหตุ (ไม่บังคับ) เช่น น้ำสูงระดับเข่า"></textarea>
+    <button class="send">ส่งรายงาน</button><span class="err"></span><span class="m">ข้อมูลเปิดเผยต่อสาธารณะ ห้ามใส่ข้อมูลส่วนตัว</span></div>`).openOn(map);
+  const el=repPop.getElement();let lv="pond";
+  el.querySelectorAll(".lvls button").forEach(b=>b.onclick=()=>{lv=b.dataset.l;el.querySelectorAll(".lvls button").forEach(x=>x.classList.toggle("on",x===b))});
+  el.querySelector(".place").focus();
+  el.querySelector(".send").onclick=async()=>{const place=el.querySelector(".place").value.trim();
+    if(place.length<2){el.querySelector(".err").textContent="กรุณาใส่ชื่อสถานที่";return}
+    if(await send({lat:+latlng.lat.toFixed(6),lng:+latlng.lng.toFixed(6),place,level:lv,note:el.querySelector(".note").value.trim()||null},el))map.closePopup(repPop)};
+}
+function setPick(on){picking=on;$("bRep").classList.toggle("on",on);$("hint").classList.toggle("show",on);map.getContainer().style.cursor=on?"crosshair":""}
+$("bRep").onclick=()=>SB?setPick(!picking):alert("ระบบรายงานโหลดไม่สำเร็จ");
+$("bCancel").onclick=()=>setPick(false);
+$("bGps").onclick=()=>navigator.geolocation?navigator.geolocation.getCurrentPosition(p=>{const ll=L.latLng(p.coords.latitude,p.coords.longitude);map.setView(ll,16);openForm(ll)},()=>alert("เปิดตำแหน่งไม่ได้ ลองแตะบนแผนที่แทน"),{enableHighAccuracy:true,timeout:10000}):alert("เบราว์เซอร์ไม่รองรับ GPS");
+map.on("click",e=>{if(picking)openForm(e.latlng)});
+if(SB){loadReps();setInterval(drawReps,60000);
+  SB.channel("reports").on("postgres_changes",{event:"INSERT",schema:"public",table:"reports"},p=>{addRow(p.new);drawReps()}).subscribe();}
 
 const tog=(b,g)=>{$(b).onclick=()=>{const on=map.hasLayer(g);on?map.removeLayer(g):map.addLayer(g);$(b).classList.toggle("on",!on)}};
 tog("bRain",gRain);tog("bCam",gCam);
