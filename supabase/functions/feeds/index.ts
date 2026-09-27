@@ -1,8 +1,9 @@
-// Supabase Edge Function "feeds": ดึงร้องเรียนน้ำท่วมจาก Traffy Fondue + ข่าวน้ำท่วมจาก Google News
-// แล้วส่งกลับเป็น JSON ขนาดเล็กพร้อม CORS ให้แผนที่อ่าน; เก็บผลไว้ในหน่วยความจำ 5 นาที
-// เรียก: GET /functions/v1/feeds?kind=traffy | news   (ปิด Verify JWT)
+// Supabase Edge Function "feeds": รวมข้อมูลภายนอกให้แผนที่น้ำท่วม
+//   traffy = ร้องเรียนน้ำท่วมจาก Traffy Fondue, news = ข่าวน้ำท่วม (Google News + Bing),
+//   cams = กล้องจาก Longdo พร้อมตรวจสถานะว่าภาพเดินจริง
+// GET /functions/v1/feeds?kind=traffy|news|cams[&refresh=1]   (ปิด Verify JWT)
+// ผลเก็บในตาราง feed_cache; pg_cron เรียก refresh=1 ทุก 5 นาที (ดู supabase/feeds.sql)
 
-const TTL = 5 * 60e3;
 const PHOTO = "https://storage.googleapis.com/traffy_public_bucket/attachment/";
 const FLOOD = /ท่วม|น้ำขัง|น้ำรอระบาย|ระบายน้ำไม่ทัน/;
 const cache: Record<string, { at: number; body: string }> = {};
@@ -68,22 +69,107 @@ async function news() {
   return { updated: new Date().toISOString(), items };
 }
 
-const KINDS: Record<string, () => Promise<unknown>> = { traffy, news };
+// ===== กล้อง: ตรวจสุขภาพทุกตัวก่อนส่งให้แผนที่ =====
+// live = playlist เดินต่อเนื่อง, suspended = ต้นทางปิด (tempsus / ENDLIST),
+// frozen = playlist ไม่ขยับใน 12 วิ, offline = โหลดไม่ได้ / ภาพว่าง / ภาพ "No signal"
+type Cam = { title: string; lat: number; lng: number; hls: string; img: string; org: string; status?: string };
+const T = (ms: number) => AbortSignal.timeout(ms);
+
+async function pool<A, B>(items: A[], n: number, fn: (a: A) => Promise<B>): Promise<B[]> {
+  const out: B[] = new Array(items.length);
+  let i = 0;
+  await Promise.all(Array.from({ length: n }, async () => { while (i < items.length) { const k = i++; out[k] = await fn(items[k]); } }));
+  return out;
+}
+
+async function playlist(url: string) {
+  let txt = await (await fetch(url, { signal: T(7000) })).text();
+  if (!txt.startsWith("#EXTM3U")) throw new Error("not m3u8");
+  const v = txt.split("\n").find((l) => l && !l.startsWith("#"));
+  if (/#EXT-X-STREAM-INF/.test(txt) && v) txt = await (await fetch(new URL(v, url), { signal: T(7000) })).text();
+  const segs = txt.split("\n").filter((l) => l && !l.startsWith("#"));
+  return { seq: +((txt.match(/#EXT-X-MEDIA-SEQUENCE:(\d+)/) || [])[1] ?? -1), last: segs.at(-1) || "", n: segs.length, ended: /#EXT-X-ENDLIST/.test(txt) };
+}
+
+async function imgHash(url: string) {
+  const b = new Uint8Array(await (await fetch(url, { signal: T(7000) })).arrayBuffer());
+  if (b.byteLength < 1500) return "";
+  return Array.from(new Uint8Array(await crypto.subtle.digest("SHA-1", b)), (x) => x.toString(16).padStart(2, "0")).join("");
+}
+
+async function cams() {
+  const j = await (await fetch("https://traffic.longdo.com/camera.json", { signal: T(15000) })).json();
+  const list: Cam[] = (j.item || []).map((c: any) => ({
+    title: c.title || "", lat: +c.latitude, lng: +c.longitude, hls: c.hls_url || "",
+    img: /X\.X/.test(c.imgurl || "") ? "" : (c.imgurl || ""), org: c.organization || "",
+  })).filter((c: Cam) => c.lat && c.lng && (c.hls || c.img));
+
+  const hls = list.filter((c) => c.hls && !/tempsus/.test(c.hls));
+  list.filter((c) => /tempsus/.test(c.hls)).forEach((c) => (c.status = "suspended"));
+  // ลองซ้ำ 1 ครั้งเมื่อพลาด กันกล้องที่ใช้งานได้ถูกซ่อนเพราะเน็ตสะดุดชั่วคราว
+  const tryPl = (u: string) => playlist(u).catch(() => new Promise((r) => setTimeout(r, 1500)).then(() => playlist(u))).catch(() => null);
+  const first = await pool(hls, 20, (c) => tryPl(c.hls));
+  await new Promise((r) => setTimeout(r, 12000));
+  const second = await pool(hls, 20, (c) => tryPl(c.hls));
+  hls.forEach((c, i) => {
+    const a = first[i], b = second[i];
+    if (!a || !b || !b.n) c.status = "offline";
+    else if (b.ended) c.status = "suspended";
+    else c.status = b.seq > a.seq || b.last !== a.last ? "live" : "frozen";
+  });
+
+  // ภาพนิ่ง: ภาพเดียวกันซ้ำ ≥3 กล้อง = ภาพ "No signal" ของระบบ
+  const imgs = list.filter((c) => !c.hls);
+  const hashes = await pool(imgs, 20, (c) => imgHash(c.img).catch(() => ""));
+  const freq: Record<string, number> = {};
+  hashes.forEach((h) => h && (freq[h] = (freq[h] || 0) + 1));
+  imgs.forEach((c, i) => (c.status = hashes[i] && freq[hashes[i]] < 3 ? "live" : "offline"));
+
+  const counts: Record<string, number> = {};
+  list.forEach((c) => (counts[c.status!] = (counts[c.status!] || 0) + 1));
+  return { updated: new Date().toISOString(), counts, items: list };
+}
+
+const KINDS: Record<string, () => Promise<unknown>> = { traffy, news, cams };
+
+// ===== เก็บผลไว้ในตาราง feed_cache (pg_cron เรียก ?refresh=1 ทุก 5 นาที) =====
+// หน้าเว็บอ่านตารางตรงผ่าน REST จึงไม่ต้องรอการตรวจกล้อง ~40 วิ
+const SB_URL = Deno.env.get("SUPABASE_URL")!;
+const SRK = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const dbHeaders = { apikey: SRK, Authorization: `Bearer ${SRK}`, "Content-Type": "application/json" };
+async function readDb(kind: string): Promise<{ body: string; at: number } | null> {
+  const r = await fetch(`${SB_URL}/rest/v1/feed_cache?kind=eq.${kind}&select=body,updated_at`, { headers: dbHeaders });
+  const rows = r.ok ? await r.json() : [];
+  return rows[0] ? { body: JSON.stringify(rows[0].body), at: Date.parse(rows[0].updated_at) } : null;
+}
+async function writeDb(kind: string, body: string) {
+  await fetch(`${SB_URL}/rest/v1/feed_cache`, {
+    method: "POST", headers: { ...dbHeaders, Prefer: "resolution=merge-duplicates" },
+    body: JSON.stringify({ kind, body: JSON.parse(body), updated_at: new Date().toISOString() }),
+  });
+}
+const refreshing: Record<string, Promise<string> | undefined> = {};
+function refresh(kind: string) {
+  return (refreshing[kind] ??= KINDS[kind]()
+    .then(async (d) => { const body = JSON.stringify(d); cache[kind] = { at: Date.now(), body }; await writeDb(kind, body); return body; })
+    .finally(() => { refreshing[kind] = undefined; }));
+}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
   const kind = new URL(req.url).searchParams.get("kind") || "";
   const fn = KINDS[kind];
-  if (!fn) return new Response('{"error":"kind must be traffy or news"}', { status: 400, headers: { ...CORS, "Content-Type": "application/json" } });
-  const hit = cache[kind];
-  if (!hit || Date.now() - hit.at > TTL) {
-    try {
-      cache[kind] = { at: Date.now(), body: JSON.stringify(await fn()) };
-    } catch (e) {
-      if (!hit) return new Response(JSON.stringify({ error: String(e) }), { status: 502, headers: { ...CORS, "Content-Type": "application/json" } });
-    }
+  if (!fn) return new Response('{"error":"kind must be traffy, news or cams"}', { status: 400, headers: { ...CORS, "Content-Type": "application/json" } });
+  const wantRefresh = new URL(req.url).searchParams.has("refresh");
+  let hit = cache[kind] ?? await readDb(kind).catch(() => null);
+  const age = hit ? Date.now() - hit.at : Infinity;
+  // refresh=1 จาก pg_cron: ทำใหม่ (แต่ไม่ถี่กว่า 2 นาที กันคนยิงเล่นให้ระบบทำงานหนัก)
+  // ผู้ใช้ทั่วไป: ใช้ของเดิม ถ้าไม่มีหรือเก่าเกิน 15 นาที (cron ค้าง) จึงทำใหม่
+  if ((wantRefresh && age > 2 * 60e3) || age > 15 * 60e3) {
+    try { hit = { body: await refresh(kind), at: Date.now() }; }
+    catch (e) { if (!hit) return new Response(JSON.stringify({ error: String(e) }), { status: 502, headers: { ...CORS, "Content-Type": "application/json" } }); }
   }
-  return new Response(cache[kind].body, {
+  return new Response(hit!.body, {
     headers: { ...CORS, "Content-Type": "application/json; charset=utf-8", "Cache-Control": "public, max-age=300" },
   });
 });

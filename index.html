@@ -106,14 +106,16 @@ button.on{background:var(--acc);color:#0b1618;border-color:var(--acc)}
   <h1>กล้องสดทั่วประเทศไทย</h1>
   <p class="sub" id="gSub">กำลังโหลดรายชื่อกล้อง…</p>
   <div class="gctl">
-    <select id="gProv"><option value="">ทุกจังหวัด</option></select>
-    <input id="gQ" type="search" placeholder="ค้นหา เช่น บางนา, แยก, ทางด่วน">
+    <select id="gProv" autocomplete="off"><option value="">ทุกจังหวัด</option></select>
+    <input id="gQ" type="search" autocomplete="off" placeholder="ค้นหา เช่น บางนา, แยก, ทางด่วน">
   </div>
   <div id="grid"></div>
 </section>
 <div id="news"><h2>📰 ข่าวน้ำท่วม 24 ชม. <button id="bNewsX">✕</button></h2><ul id="newsList"><li class="m">กำลังโหลด…</li></ul></div>
 <script>
 const API="https://api-v3.thaiwater.net/api/v1/thaiwater30/public/";
+// Supabase Edge Function "feeds" (ดู supabase/functions/feeds): traffy, news, cams
+const FEEDS="https://lydzncyvjxxysfudwcmi.supabase.co/functions/v1/feeds?kind=";
 const LV={1:["น้ำน้อยวิกฤต","#a16207"],2:["น้ำน้อย","#eab308"],3:["ปกติ","#30a46c"],4:["น้ำมาก","#3b82f6"],5:["ล้นตลิ่ง","#e5484d"]};
 // พิกัดกล้องเป็นค่าประมาณจากชื่อสถานที่
 const CAMS=[
@@ -250,17 +252,17 @@ function gridShow(){
   const pv=$("gProv").value,q=$("gQ").value.trim().toLowerCase();
   const list=camList.filter(c=>(!pv||provOf(c.title)===pv)&&(!q||c.title.toLowerCase().includes(q)));
   list.forEach(c=>{const d=gridCard(c);$("grid").appendChild(d);gridIO.observe(d)});
-  $("gSub").textContent=`แสดง ${list.length} จาก ${camList.length} กล้อง · ที่มา: Longdo Traffic, iTIC, กรมทางหลวง · เล่นเฉพาะกล้องที่อยู่บนจอ`;
+  $("gSub").textContent=`แสดง ${list.length} จาก ${camList.length} กล้อง · ที่มา: Longdo Traffic, iTIC, กรมทางหลวง · เล่นเฉพาะกล้องที่อยู่บนจอ`+(camStat?" · "+camStat:"");
 }
 function gridInit(){
   const n=p=>camList.filter(c=>provOf(c.title)===p).length;
   const provs=[...new Set(camList.map(c=>provOf(c.title)))].sort((a,b)=>a==="กรุงเทพมหานคร"?-1:b==="กรุงเทพมหานคร"?1:a.localeCompare(b,"th"));
   $("gProv").innerHTML='<option value="">ทุกจังหวัด</option>'+provs.map(p=>`<option value="${esc(p)}">${esc(p)} (${n(p)})</option>`).join("");
   // เปิดมาที่กรุงเทพฯ ก่อน จะได้ไม่โหลดกล้องทั้งประเทศพร้อมกัน
-  if(provs.includes("กรุงเทพมหานคร"))$("gProv").value="กรุงเทพมหานคร";
+  const keep=gridReady?gProvSel:"กรุงเทพมหานคร";if(provs.includes(keep)||keep==="")$("gProv").value=keep;
   gridReady=true;gridShow();
 }
-$("gProv").onchange=gridShow;
+let gProvSel="กรุงเทพมหานคร";$("gProv").onchange=()=>{gProvSel=$("gProv").value;gridShow()};
 let gqT;$("gQ").oninput=()=>{clearTimeout(gqT);gqT=setTimeout(gridShow,300)};
 
 // สลับโหมดด้วย #map / #cams (ออกจากโหมดกล้องแล้วหยุดวิดีโอทั้งหมด)
@@ -276,21 +278,34 @@ document.querySelectorAll('.tabs a').forEach(a=>a.onclick=e=>{e.preventDefault()
 setMode(location.hash.slice(1));
 
 // camList ใช้ร่วมกันทั้งหมุดบนแผนที่และตารางกล้อง (โหมดกล้อง)
-let camList=[];
-async function loadCams(){
-  const seen=new Set();
-  const add=(title,lat,lng,hls,img,org)=>camList.push({title,lat,lng,hls:hls||"",img:img||"",org:org||"",marker:addCam(title,lat,lng,hls,img,org)});
+// แสดงเฉพาะกล้องที่ Supabase ตรวจแล้วว่าออนไลน์ (ภาพเดินจริง) — ตัดกล้องที่ต้นทางปิด/ค้าง/ภาพ "No signal" ออก
+let camList=[],camStat="";
+async function fetchCams(){
+  try{
+    const j=await fetch(FEEDS+"cams").then(r=>{if(!r.ok)throw 0;return r.json()});
+    const c=j.counts||{},off=(c.suspended||0)+(c.offline||0)+(c.frozen||0);
+    camStat=`ตรวจสถานะล่าสุด ${ago(j.updated)} · ซ่อนกล้องที่ใช้งานไม่ได้ ${off} ตัว (ต้นทางปิด ${c.suspended||0}, ออฟไลน์ ${c.offline||0}, ภาพค้าง ${c.frozen||0})`;
+    return j.items.filter(x=>x.status==="live");
+  }catch(e){}
+  // สำรอง: ดึงจาก Longdo ตรง ตัดเฉพาะที่รู้แน่ว่าเสีย (ยังไม่ได้ตรวจสถานะ)
   try{
     const j=await fetch("https://traffic.longdo.com/camera.json").then(r=>r.json());
-    (j.item||[]).forEach(c=>{const lat=+c.latitude,lng=+c.longitude;if(!lat||!lng)return;
-      const img=/X\.X/.test(c.imgurl||"")?"":c.imgurl;if(!c.hls_url&&!img)return;
-      if(c.hls_url)seen.add(c.hls_url);add(c.title,lat,lng,c.hls_url,img,c.organization)});
+    camStat="⚠️ ตรวจสถานะกล้องไม่ได้ชั่วคราว บางกล้องอาจออฟไลน์";
+    return (j.item||[]).map(c=>({title:c.title,lat:+c.latitude,lng:+c.longitude,hls:c.hls_url||"",img:"",org:c.organization||""}))
+      .filter(c=>c.lat&&c.lng&&c.hls&&!/tempsus/.test(c.hls));
   }catch(e){}
-  CAMS.forEach(([t,lat,lng,u])=>{if(!seen.has(u))add("(กรุงเทพมหานคร) "+t,lat,lng,u,"","iTIC")});
+  camStat="⚠️ โหลดรายชื่อกล้องไม่ได้ แสดงกล้องสำรอง";
+  return CAMS.map(([t,lat,lng,u])=>({title:"(กรุงเทพมหานคร) "+t,lat,lng,hls:u,img:"",org:"iTIC"}));
+}
+async function loadCams(){
+  if(mode==="cams"&&gridReady)return;  // ไม่รีเฟรชระหว่างดูตารางกล้อง จะได้ไม่ตัดวิดีโอที่กำลังเล่น
+  const list=await fetchCams();
+  gCam.clearLayers();
+  camList=list.map(c=>({...c,marker:addCam(c.title,c.lat,c.lng,c.hls,c.img,c.org)}));
   $("nc").textContent=camList.length;
   gridInit();
 }
-loadCams();
+loadCams();setInterval(loadCams,600000);
 
 // รายงานจากประชาชน (Supabase): 1 จุด = แถวแรก + แถวอัปเดตที่ parent_id ชี้มา, แสดงสถานะล่าสุด
 const SB=window.supabase?.createClient("https://lydzncyvjxxysfudwcmi.supabase.co","sb_publishable_g1xwYxG4ZerADZIr7I2yiw_d5DW58zM");
@@ -377,7 +392,6 @@ if(SB){loadReps();setInterval(drawReps,60000);
   SB.channel("reports").on("postgres_changes",{event:"INSERT",schema:"public",table:"reports"},p=>{addRow(p.new);drawReps()}).subscribe();}
 
 // Traffy Fondue + ข่าว: ผ่าน Supabase Edge Function "feeds" (ดู supabase/functions/feeds)
-const FEEDS="https://lydzncyvjxxysfudwcmi.supabase.co/functions/v1/feeds?kind=";
 const TPHOTO="https://storage.googleapis.com/traffy_public_bucket/attachment/";
 const gTraffy=L.layerGroup().addTo(map);
 async function loadFeeds(){
