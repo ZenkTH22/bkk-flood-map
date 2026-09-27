@@ -44,6 +44,14 @@ button.on{background:var(--acc);color:#0b1618;border-color:var(--acc)}
 .frm .send{background:#f97316;border-color:#f97316;color:#fff;font-weight:600}
 .err{color:#f87171;font-size:12px}
 .hist{margin:6px 0 0;padding-left:16px;font-size:12px;color:var(--mut)}
+#news{position:absolute;z-index:1000;right:10px;top:10px;width:340px;max-height:calc(100% - 90px);display:none;flex-direction:column;background:var(--card);border:1px solid var(--line);border-radius:12px;backdrop-filter:blur(6px)}
+#news.show{display:flex}
+#news h2{font-size:15px;margin:0;padding:10px 12px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center}
+#news ul{list-style:none;margin:0;padding:0;overflow:auto}
+#news li{padding:8px 12px;border-bottom:1px solid var(--line)}
+#news a{color:var(--tx);text-decoration:none;font-size:13px}#news a:hover{color:var(--acc)}
+.pop .tph{width:260px;max-width:65vw;border-radius:6px;display:block;margin-top:6px}
+@media (max-width:480px){#news{left:6px;right:6px;width:auto;top:auto;bottom:6px;max-height:45%}}
 @media (max-width:480px){.panel{top:6px;left:6px;right:6px;padding:8px}.sum b{font-size:15px}}
 </style></head><body>
 <div id="map"></div>
@@ -61,6 +69,8 @@ button.on{background:var(--acc);color:#0b1618;border-color:var(--acc)}
     <button id="bRisk">เฉพาะเสี่ยง</button>
     <button id="bRain" class="on">ฝน 24 ชม.</button>
     <button id="bCam" class="on">กล้อง CCTV (<span id="nc">…</span>)</button>
+    <button id="bTraffy" class="on">Traffy (<span id="nt">…</span>)</button>
+    <button id="bNews">📰 ข่าว</button>
     <button id="bAll">ทั้งประเทศ</button>
   </div>
   <div class="leg">
@@ -68,9 +78,11 @@ button.on{background:var(--acc);color:#0b1618;border-color:var(--acc)}
     <span><i style="background:#30a46c"></i>ปกติ</span><span><i style="background:#eab308"></i>น้อย</span>
     <span><i style="background:#a16207"></i>วิกฤตน้อย</span><span>📷 กล้องสด (คลิกดู)</span>
     <span>🟠 น้ำขัง · 🔴 ท่วมสูง · ✅ ลดแล้ว (ประชาชนรายงาน <b id="nrep">0</b> จุด)</span>
+    <span><i style="background:#a855f7"></i>ร้องเรียนน้ำท่วม Traffy Fondue 24 ชม.</span>
   </div>
   <div id="hint">แตะบนแผนที่ตรงจุดที่น้ำท่วม หรือ <button id="bGps">ใช้ตำแหน่งฉัน</button> <button id="bCancel">ยกเลิก</button></div>
 </div>
+<div id="news"><h2>📰 ข่าวน้ำท่วม 24 ชม. <button id="bNewsX">✕</button></h2><ul id="newsList"><li class="m">กำลังโหลด…</li></ul></div>
 <script>
 const API="https://api-v3.thaiwater.net/api/v1/thaiwater30/public/";
 const LV={1:["น้ำน้อยวิกฤต","#a16207"],2:["น้ำน้อย","#eab308"],3:["ปกติ","#30a46c"],4:["น้ำมาก","#3b82f6"],5:["ล้นตลิ่ง","#e5484d"]};
@@ -234,8 +246,31 @@ map.on("click",e=>{if(picking)openForm(e.latlng)});
 if(SB){loadReps();setInterval(drawReps,60000);
   SB.channel("reports").on("postgres_changes",{event:"INSERT",schema:"public",table:"reports"},p=>{addRow(p.new);drawReps()}).subscribe();}
 
+// Traffy Fondue + ข่าว: GitHub Actions ดึงทุก 15 นาทีแล้ววางไว้ที่ branch "data"
+const FEEDS="https://raw.githubusercontent.com/ZenkTH22/bkk-flood-map/data/";
+const TPHOTO="https://storage.googleapis.com/traffy_public_bucket/attachment/";
+const gTraffy=L.layerGroup().addTo(map);
+async function loadFeeds(){
+  try{
+    const t=await fetch(FEEDS+"traffy.json?t="+Date.now()).then(r=>r.json());
+    gTraffy.clearLayers();
+    t.items.forEach(x=>L.circleMarker([x.lat,x.lng],{radius:5,color:"#fff",weight:1,fillColor:"#a855f7",fillOpacity:.85})
+      .bindPopup(()=>`<div class="pop"><b>ร้องเรียนผ่าน Traffy Fondue</b><br>${esc(x.text)}
+        ${x.photo?`<img class="tph" loading="lazy" src="${esc(TPHOTO+x.photo)}" alt="">`:""}
+        <span class="m">${esc(x.addr)}<br>${esc(x.state)} · ${ago(x.ts)}</span></div>`,{maxWidth:300}).addTo(gTraffy));
+    $("nt").textContent=t.items.length;
+  }catch(e){$("nt").textContent="–"}
+  try{
+    const n=await fetch(FEEDS+"news.json?t="+Date.now()).then(r=>r.json());
+    $("newsList").innerHTML=n.items.map(x=>`<li><a href="${esc(x.link)}" target="_blank" rel="noopener">${esc(x.title)}</a><br><span class="m">${esc(x.source)} · ${ago(x.ts)}</span></li>`).join("")||'<li class="m">ยังไม่มีข่าว</li>';
+  }catch(e){$("newsList").innerHTML='<li class="m">โหลดข่าวไม่สำเร็จ</li>'}
+}
+loadFeeds();setInterval(loadFeeds,600000);
+$("bNews").onclick=()=>{const on=$("news").classList.toggle("show");$("bNews").classList.toggle("on",on)};
+$("bNewsX").onclick=()=>{$("news").classList.remove("show");$("bNews").classList.remove("on")};
+
 const tog=(b,g)=>{$(b).onclick=()=>{const on=map.hasLayer(g);on?map.removeLayer(g):map.addLayer(g);$(b).classList.toggle("on",!on)}};
-tog("bRain",gRain);tog("bCam",gCam);
+tog("bRain",gRain);tog("bCam",gCam);tog("bTraffy",gTraffy);
 $("bRisk").onclick=()=>{riskOnly=!riskOnly;$("bRisk").classList.toggle("on",riskOnly);drawWater()};
 $("bAll").onclick=()=>map.fitBounds(TH);
 load();setInterval(load,600000);
