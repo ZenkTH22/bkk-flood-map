@@ -71,6 +71,7 @@ button.on{background:var(--acc);color:#0b1618;border-color:var(--acc)}
     <button id="bCam" class="on">กล้อง CCTV (<span id="nc">…</span>)</button>
     <button id="bTraffy" class="on">Traffy (<span id="nt">…</span>)</button>
     <button id="bNews">📰 ข่าว</button>
+    <button id="bMe">🎯 ตำแหน่งฉัน</button>
     <button id="bAll">ทั้งประเทศ</button>
   </div>
   <div class="leg">
@@ -249,7 +250,24 @@ function openForm(latlng){
 function setPick(on){picking=on;$("bRep").classList.toggle("on",on);$("hint").classList.toggle("show",on);map.getContainer().style.cursor=on?"crosshair":""}
 $("bRep").onclick=()=>SB?setPick(!picking):alert("ระบบรายงานโหลดไม่สำเร็จ");
 $("bCancel").onclick=()=>setPick(false);
-$("bGps").onclick=()=>navigator.geolocation?navigator.geolocation.getCurrentPosition(p=>{const ll=L.latLng(p.coords.latitude,p.coords.longitude);map.setView(ll,16);openForm(ll)},()=>alert("เปิดตำแหน่งไม่ได้ ลองแตะบนแผนที่แทน"),{enableHighAccuracy:true,timeout:10000}):alert("เบราว์เซอร์ไม่รองรับ GPS");
+// ตำแหน่งผู้ใช้: ขออนุญาตตอนเปิดเว็บ แล้วติดตามต่อเนื่อง (จุดสีน้ำเงิน + วงความแม่นยำ)
+let me=null;const meDot=L.circleMarker([0,0],{radius:7,color:"#fff",weight:2,fillColor:"#2563eb",fillOpacity:1}),meAcc=L.circle([0,0],{radius:0,color:"#2563eb",weight:1,fillOpacity:.1,interactive:false});
+meDot.bindTooltip("คุณอยู่ที่นี่");
+function locate(then){
+  if(!navigator.geolocation)return alert("เบราว์เซอร์ไม่รองรับการระบุตำแหน่ง");
+  navigator.geolocation.getCurrentPosition(p=>{setMe(p);then&&then(me)},
+    e=>then&&alert(e.code===1?"ไม่ได้รับอนุญาตให้เข้าถึงตำแหน่ง — เปิดได้ที่ไอคอนแม่กุญแจข้างแถบที่อยู่เว็บ":"หาตำแหน่งไม่ได้ ลองใหม่อีกครั้ง"),
+    {enableHighAccuracy:true,timeout:15000,maximumAge:60000});
+}
+function setMe(p){
+  const first=!me;me=L.latLng(p.coords.latitude,p.coords.longitude);
+  meDot.setLatLng(me).addTo(map);meAcc.setLatLng(me).setRadius(Math.min(p.coords.accuracy,2000)).addTo(map);
+  if(first&&L.latLngBounds(map.options.maxBounds).contains(me))map.setView(me,13);
+}
+locate();
+navigator.geolocation?.watchPosition(setMe,()=>{},{enableHighAccuracy:true,maximumAge:30000});
+$("bMe").onclick=()=>me?map.setView(me,16):locate(ll=>map.setView(ll,16));
+$("bGps").onclick=()=>locate(ll=>{map.setView(ll,16);openForm(ll)});
 map.on("click",e=>{if(picking)openForm(e.latlng)});
 if(SB){loadReps();setInterval(drawReps,60000);
   SB.channel("reports").on("postgres_changes",{event:"INSERT",schema:"public",table:"reports"},p=>{addRow(p.new);drawReps()}).subscribe();}
