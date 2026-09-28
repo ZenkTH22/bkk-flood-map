@@ -3,7 +3,7 @@
 <title>แผนที่น้ำท่วมไทย</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.13/hls.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.6.13/hls.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <style>
 :root{--bg:#0b1618;--card:#12211fee;--line:#22393c;--tx:#e3eeef;--mut:#8ea7ab;--acc:#3cb6cf}
@@ -196,7 +196,7 @@ function addCam(t,lat,lng,hls,img,org,yt,ytc){
     if(yt||ytc){el.querySelector("iframe").src=ytc?ytcSrc(ytc):ytSrc(yt);st.textContent="● สด (YouTube)";st.style.color="#f09a52";return}
     if(!hls){const im=el.querySelector("img");im.onload=ok;im.onerror=off;
       const f=()=>im.src=img+(img.includes("?")?"&":"?")+"t="+Date.now();f();tm=setInterval(f,5000);return}
-    const v=el.querySelector("video"),play=()=>{v.play().catch(()=>{});ok()};
+    const v=el.querySelector("video"),play=()=>v.play().catch(()=>{});v.addEventListener("playing",()=>{clearTimeout(tm);ok()},{once:true});tm=setTimeout(()=>{if(v.readyState<3)off()},20000);
     if(window.Hls&&Hls.isSupported()){
       let retry=0;
       h=new Hls({liveSyncDurationCount:4,liveMaxLatencyDurationCount:10,maxBufferLength:20,backBufferLength:10,capLevelToPlayerSize:true,fragLoadingMaxRetry:6,manifestLoadingMaxRetry:6,maxBufferHole:1});
@@ -236,7 +236,7 @@ function gridCard(c){
       const h=p.h=new Hls({lowLatencyMode:false,liveSyncDurationCount:4,liveMaxLatencyDurationCount:10,maxBufferLength:20,maxMaxBufferLength:40,backBufferLength:10,capLevelToPlayerSize:true,
         manifestLoadingMaxRetry:6,levelLoadingMaxRetry:6,fragLoadingMaxRetry:6,nudgeMaxRetry:10,maxBufferHole:1});
       h.loadSource(c.hls);h.attachMedia(v);
-      h.on(Hls.Events.MANIFEST_PARSED,()=>{v.play().catch(()=>{});ok()});
+      h.on(Hls.Events.MANIFEST_PARSED,()=>v.play().catch(()=>{}));v.addEventListener("playing",()=>{clearTimeout(p.wd);ok()},{once:true});clearTimeout(p.wd);p.wd=setTimeout(()=>{if(p.h===h&&v.readyState<3){off();p.stop()}},20000);
       h.on(Hls.Events.FRAG_BUFFERED,()=>{retry=0});
       h.on(Hls.Events.ERROR,(_,x)=>{if(!x.fatal)return;
         if(x.type===Hls.ErrorTypes.MEDIA_ERROR&&retry++<3)return h.recoverMediaError();
