@@ -97,12 +97,46 @@ async function imgHash(url: string) {
   return Array.from(new Uint8Array(await crypto.subtle.digest("SHA-1", b)), (x) => x.toString(16).padStart(2, "0")).join("");
 }
 
+// กรมทางหลวง (highwaytraffic.go.th): 190 จุด ~368 สตรีม HLS
+// เซิร์ฟเวอร์สตรีมดับบ่อย จึงเช็กก่อน ถ้าต่อไม่ได้ข้ามทั้งชุด (ไม่ยิง API กรมฯ ~380 ครั้งเปล่าๆ)
+const DOH = "https://highwaytraffic.go.th/DOHWeb/Home.aspx";
+async function dohCams(): Promise<Cam[]> {
+  const up = await fetch("https://streaming1.highwaytraffic.go.th/", { signal: T(6000) }).then(() => true, () => false);
+  if (!up) return [];
+  const H = { "User-Agent": "Mozilla/5.0" };
+  const home = await fetch(DOH, { headers: H, signal: T(15000) });
+  const cookie = home.headers.getSetCookie().map((c) => c.split(";")[0]).join("; ");
+  const sites = [...(await home.text()).matchAll(/CreateCustomDiv\(([\d.]+),\s*([\d.]+),\s*'[^']*',\s*'<div id="pin(\d+)"/g)]
+    .map(([, lat, lng, id]) => ({ lat: +lat, lng: +lng, id }));
+  const call = async (m: string, id: string) => (await (await fetch(`${DOH}/${m}`, {
+    method: "POST", headers: { ...H, Cookie: cookie, "Content-Type": "application/json; charset=utf-8" },
+    body: JSON.stringify({ siteID: +id }), signal: T(15000),
+  })).json()).d;
+  const per = await pool(sites, 10, async (s) => {
+    try {
+      const [info, cam] = await Promise.all([call("GetSiteInfo", s.id), call("GetCameraInfo", s.id)]);
+      const name = ((String(info?.[3] || "").match(/ชื่อจุดติดตั้ง<\/b><\/td><td[^>]*>([^<]+)/) || [])[1] || "").trim();
+      const prov = (name.match(/จ\.\S+/) || [""])[0];
+      const place = name.replace(/\s*จ\.\S+/, "").replace(/^(\d+) - /, "ทล.$1 ");
+      return [...String(cam).matchAll(/site_code="([^"]+\.m3u8)"/g)].map(([, hls]) => ({
+        title: `${prov ? `(${prov}) ` : ""}${place} ${/_OUT\./.test(hls) ? "ขาออก" : "ขาเข้า"}`,
+        lat: s.lat, lng: s.lng, hls, img: "", org: "กรมทางหลวง",
+      }));
+    } catch { return []; }
+  });
+  const seen = new Set<string>();  // บางจุดส่งสตรีมเดียวกันทั้งสองทิศ
+  return per.flat().filter((c) => !seen.has(c.hls) && seen.add(c.hls));
+}
+
 async function cams() {
-  const j = await (await fetch("https://traffic.longdo.com/camera.json", { signal: T(15000) })).json();
+  const [j, doh] = await Promise.all([
+    fetch("https://traffic.longdo.com/camera.json", { signal: T(15000) }).then((r) => r.json()),
+    dohCams().catch(() => [] as Cam[]),
+  ]);
   const list: Cam[] = (j.item || []).map((c: any) => ({
     title: c.title || "", lat: +c.latitude, lng: +c.longitude, hls: c.hls_url || "",
     img: /X\.X/.test(c.imgurl || "") ? "" : (c.imgurl || ""), org: c.organization || "",
-  })).filter((c: Cam) => c.lat && c.lng && (c.hls || c.img));
+  })).filter((c: Cam) => c.lat && c.lng && (c.hls || c.img)).concat(doh);
 
   const hls = list.filter((c) => c.hls && !/tempsus/.test(c.hls));
   list.filter((c) => /tempsus/.test(c.hls)).forEach((c) => (c.status = "suspended"));
