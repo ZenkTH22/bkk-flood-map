@@ -134,6 +134,11 @@ const YT: [string, string, number, number][] = [
   ["a_bUVExv_Cg", "(กรุงเทพมหานคร) ถ.เพชรบุรี", 13.7503, 100.5400],
   ["Q71sLS8h9a4", "(กรุงเทพมหานคร) สุขุมวิท ซอย 19", 13.7385, 100.5608],
   ["UemFRPrl1hk", "(กรุงเทพมหานคร) สุขุมวิท ซอย 11", 13.7430, 100.5555],
+  ["dIcFDZQDueI", "(กรุงเทพมหานคร) รวมกล้องระดับน้ำกรมทรัพยากรน้ำ 8 จุด (ปทุมฯ–สะพานพุทธ–ปากน้ำ)", 13.7393, 100.4973],
+  ["rNwD42V8xDM", "(กรุงเทพมหานคร) มุมสูงดินแดง–อโศก", 13.7560, 100.5600],
+  ["Vx1x_Pjcu-E", "(กรุงเทพมหานคร) มุมสูงกรุงเทพฯ (ไม่ระบุจุดแน่ชัด)", 13.7460, 100.5350],
+  ["8biyA90vl1Q", "(กรุงเทพมหานคร) ท่าอากาศยานดอนเมือง", 13.9126, 100.6068],
+  ["yoHisCvvrSo", "(จ.สมุทรปราการ) ท่าอากาศยานสุวรรณภูมิ", 13.6900, 100.7501],
   ["OsjwtFXkVoc", "(จ.ระยอง) ถ.จันทอุดม", 12.6810, 101.2780],
   ["cnGqGE5B8GI", "(จ.ชลบุรี) พัทยาใต้", 12.9270, 100.8720],
   ["Qa5LqU9xxtc", "(จ.ชลบุรี) ถ.เลียบหาดพัทยา", 12.9360, 100.8830],
@@ -156,6 +161,12 @@ const YT: [string, string, number, number][] = [
   ["z50dAep3lvA", "(จ.สุราษฎร์ธานี) พระใหญ่ เกาะสมุย", 9.5710, 100.0600],
   ["MW3fisTCXRQ", "(จ.สุราษฎร์ธานี) หาดริ้น เกาะพะงัน", 9.6780, 100.0640],
 ];
+// เทศบาลนครรังสิต (cdp.rangsitcity.go.th): กล้องวัดระดับน้ำ ภาพนิ่งอัปเดตทุกไม่กี่วินาที
+const RANGSIT: Cam[] = [
+  { title: "(จ.ปทุมธานี) คลองรังสิตประยูรศักดิ์ (สะพานแดง)", lat: 13.98613, lng: 100.62596, hls: "", img: "https://cdp.rangsitcity.go.th/api/flood/snapshot/151", org: "เทศบาลนครรังสิต" },
+  { title: "(จ.ปทุมธานี) แม่น้ำเจ้าพระยา เมืองปทุม", lat: 14.02283, lng: 100.53556, hls: "", img: "https://cdp.rangsitcity.go.th/api/flood/snapshot/152", org: "เทศบาลนครรังสิต" },
+];
+
 async function ytCams(): Promise<Cam[]> {
   // ยิงทีละ 3 + ลองซ้ำ: YouTube จำกัดความถี่จาก IP ของ Supabase
   const page = async (id: string) => {
@@ -189,7 +200,7 @@ async function cams() {
   const list: Cam[] = (j.item || []).map((c: any) => ({
     title: c.title || "", lat: +c.latitude, lng: +c.longitude, hls: c.hls_url || "",
     img: /X\.X/.test(c.imgurl || "") ? "" : (c.imgurl || ""), org: c.organization || "",
-  })).filter((c: Cam) => c.lat && c.lng && (c.hls || c.img)).concat(doh);
+  })).filter((c: Cam) => c.lat && c.lng && (c.hls || c.img)).concat(doh, RANGSIT);
 
   const hls = list.filter((c) => c.hls && !/tempsus/.test(c.hls));
   list.filter((c) => /tempsus/.test(c.hls)).forEach((c) => (c.status = "suspended"));
