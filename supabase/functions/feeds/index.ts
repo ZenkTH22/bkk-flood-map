@@ -167,6 +167,27 @@ const RANGSIT: Cam[] = [
   { title: "(จ.ปทุมธานี) แม่น้ำเจ้าพระยา เมืองปทุม", lat: 14.02283, lng: 100.53556, hls: "", img: "https://cdp.rangsitcity.go.th/api/flood/snapshot/152", org: "เทศบาลนครรังสิต" },
 ];
 
+// กล้องเขื่อนใหญ่ กฟผ. (egatwater.egat.co.th) — ภาพนิ่ง https อัปเดตรายชั่วโมง
+// ต้นน้ำเจ้าพระยา/แม่กลอง ช่วยดูการระบายน้ำเหนือเขื่อน ตรวจ Last-Modified ตัดภาพค้าง >24 ชม.
+const EGAT: Cam[] = [
+  { title: "(จ.ตาก) เขื่อนภูมิพล (ปิง)", lat: 17.24412, lng: 98.97269, hls: "", img: "https://egatwater.egat.co.th/assets/CCTV/images/BB/1.jpg", org: "กฟผ." },
+  { title: "(จ.อุตรดิตถ์) เขื่อนสิริกิติ์ (น่าน)", lat: 17.76507, lng: 100.56485, hls: "", img: "https://egatwater.egat.co.th/assets/CCTV/images/SK/1.jpg", org: "กฟผ." },
+  { title: "(จ.กาญจนบุรี) เขื่อนศรีนครินทร์ (แควใหญ่)", lat: 14.40790, lng: 99.12867, hls: "", img: "https://egatwater.egat.co.th/assets/CCTV/images/SNR/1.jpg", org: "กฟผ." },
+  { title: "(จ.กาญจนบุรี) เขื่อนวชิราลงกรณ์ (แควน้อย)", lat: 14.79745, lng: 98.59285, hls: "", img: "https://egatwater.egat.co.th/assets/CCTV/images/VRK/1.jpg", org: "กฟผ." },
+  { title: "(จ.ยะลา) เขื่อนบางลาง (ปัตตานี)", lat: 6.32028, lng: 101.27583, hls: "", img: "https://egatwater.egat.co.th/assets/CCTV/images/BLG/1.jpg", org: "กฟผ." },
+];
+async function egatCams(): Promise<Cam[]> {
+  return await pool(EGAT, 5, async (c) => {
+    let status = "offline";
+    try {
+      const r = await fetch(c.img, { signal: T(9000) });
+      const lm = Date.parse(r.headers.get("last-modified") || "");
+      if (r.ok && (!lm || Date.now() - lm < 24 * 3600e3)) status = "live";
+    } catch { /* offline */ }
+    return { ...c, status };
+  });
+}
+
 async function ytCams(): Promise<Cam[]> {
   // ยิงทีละ 3 + ลองซ้ำ: YouTube จำกัดความถี่จาก IP ของ Supabase
   const page = async (id: string) => {
@@ -193,6 +214,7 @@ async function ytCams(): Promise<Cam[]> {
 
 async function cams() {
   const ytP = ytCams().catch(() => [] as Cam[]);
+  const egatP = egatCams().catch(() => [] as Cam[]);
   const [j, doh] = await Promise.all([
     fetch("https://traffic.longdo.com/camera.json", { signal: T(15000) }).then((r) => r.json()),
     dohCams().catch(() => [] as Cam[]),
@@ -223,7 +245,7 @@ async function cams() {
   hashes.forEach((h) => h && (freq[h] = (freq[h] || 0) + 1));
   imgs.forEach((c, i) => (c.status = hashes[i] && freq[hashes[i]] < 3 ? "live" : "offline"));
 
-  list.push(...await ytP);  // ตรวจสถานะของตัวเองแล้ว ไม่ต้องผ่านขั้น hls/ภาพนิ่ง
+  list.push(...await ytP, ...await egatP);  // ตรวจสถานะของตัวเองแล้ว ไม่ต้องผ่านขั้น hls/ภาพนิ่ง
   const counts: Record<string, number> = {};
   list.forEach((c) => (counts[c.status!] = (counts[c.status!] || 0) + 1));
   return { updated: new Date().toISOString(), counts, items: list };
