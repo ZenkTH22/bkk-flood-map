@@ -181,17 +181,19 @@ async function load(){
 
 // กล้อง: ทั่วประเทศจาก Longdo Traffic + รายการเดิม; สร้างผู้เล่นเฉพาะตอนเปิด popup แล้วทำลายเมื่อปิด
 const ytSrc=id=>`https://www.youtube-nocookie.com/embed/${id}?autoplay=1&mute=1&playsinline=1`;
+const ytcSrc=cid=>`https://www.youtube-nocookie.com/embed/live_stream?channel=${cid}&autoplay=1&mute=1&playsinline=1`;
+const camEmbed=c=>c.ytc?ytcSrc(c.ytc):ytSrc(c.yt);
 const ytBox='<iframe class="yt" referrerpolicy="strict-origin-when-cross-origin" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen style="width:100%;aspect-ratio:16/9;border:0;display:block"></iframe>';
 const camIcon=L.divIcon({className:"cam",html:"📷",iconSize:[22,22],iconAnchor:[11,11]});
-function addCam(t,lat,lng,hls,img,org,yt){
-  const body=yt?ytBox:hls?'<video muted playsinline controls></video>':'<img alt="">';
+function addCam(t,lat,lng,hls,img,org,yt,ytc){
+  const body=(yt||ytc)?ytBox:hls?'<video muted playsinline controls></video>':'<img alt="">';
   const m=L.marker([lat,lng],{icon:camIcon}).bindPopup(`<div class="pop"><b>${esc(t)}</b> <span class="m st">กำลังโหลด…</span>${body}<span class="m">${esc(org)}</span></div>`,{maxWidth:340});
   let h=null,tm=null;
   m.on("popupopen",e=>{
     const el=e.popup.getElement(),st=el.querySelector(".st");
     const ok=()=>{st.textContent=hls?"● สด":"● ภาพนิ่ง";st.style.color="#f09a52"};
     const off=()=>{st.textContent="ออฟไลน์";st.style.color=""};
-    if(yt){el.querySelector("iframe").src=ytSrc(yt);st.textContent="● สด (YouTube)";st.style.color="#f09a52";return}
+    if(yt||ytc){el.querySelector("iframe").src=ytc?ytcSrc(ytc):ytSrc(yt);st.textContent="● สด (YouTube)";st.style.color="#f09a52";return}
     if(!hls){const im=el.querySelector("img");im.onload=ok;im.onerror=off;
       const f=()=>im.src=img+(img.includes("?")?"&":"?")+"t="+Date.now();f();tm=setInterval(f,5000);return}
     const v=el.querySelector("video"),play=()=>{v.play().catch(()=>{});ok()};
@@ -218,13 +220,13 @@ const gridIO=new IntersectionObserver(es=>es.forEach(e=>{const p=e.target._p;if(
 }),{rootMargin:"200px"});
 function gridCard(c){
   const d=document.createElement("div");d.className="gc";
-  d.innerHTML=`<div class="t"><span>${esc(nameOf(c.title))}</span><span class="st">รอเลื่อนมาดู</span></div>${c.yt?ytBox:c.hls?'<video muted playsinline controls></video>':'<img alt="">'}<div class="org"><span>${esc(provOf(c.title))} · ${esc(c.org)}</span><a href="#map">📍 ดูบนแผนที่</a></div>`;
+  d.innerHTML=`<div class="t"><span>${esc(nameOf(c.title))}</span><span class="st">รอเลื่อนมาดู</span></div>${(c.yt||c.ytc)?ytBox:c.hls?'<video muted playsinline controls></video>':'<img alt="">'}<div class="org"><span>${esc(provOf(c.title))} · ${esc(c.org)}</span><a href="#map">📍 ดูบนแผนที่</a></div>`;
   d.querySelector(".org a").onclick=e=>{e.preventDefault();setMode("map");map.setView([c.lat,c.lng],16);if(!map.hasLayer(gCam))$("bCam").click();c.marker.openPopup()};
   const st=d.querySelector(".st"),ok=()=>{st.textContent=c.hls?"● สด":"● ภาพนิ่ง";st.className="st live"},off=()=>{st.textContent="ออฟไลน์";st.className="st"};
   const p={st,h:null,tm:null};
-  if(c.yt){
+  if(c.yt||c.ytc){
     const f=d.querySelector("iframe");
-    p.start=()=>{if(f.src)return;f.src=ytSrc(c.yt);st.textContent="● สด (YouTube)";st.className="st live"};
+    p.start=()=>{if(f.src)return;f.src=camEmbed(c);st.textContent="● สด (YouTube)";st.className="st live"};
     p.stop=()=>{f.removeAttribute("src")};
   }else if(c.hls){
     const v=d.querySelector("video");
@@ -308,7 +310,7 @@ async function loadCams(){
   if(mode==="cams"&&gridReady)return;  // ไม่รีเฟรชระหว่างดูตารางกล้อง จะได้ไม่ตัดวิดีโอที่กำลังเล่น
   const list=await fetchCams();
   gCam.clearLayers();
-  camList=list.map(c=>({...c,marker:addCam(c.title,c.lat,c.lng,c.hls,c.img,c.org,c.yt)}));
+  camList=list.map(c=>({...c,marker:addCam(c.title,c.lat,c.lng,c.hls,c.img,c.org,c.yt,c.ytc)}));
   $("nc").textContent=camList.length;
   gridInit();
 }

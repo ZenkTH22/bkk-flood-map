@@ -72,7 +72,7 @@ async function news() {
 // ===== กล้อง: ตรวจสุขภาพทุกตัวก่อนส่งให้แผนที่ =====
 // live = playlist เดินต่อเนื่อง, suspended = ต้นทางปิด (tempsus / ENDLIST),
 // frozen = playlist ไม่ขยับใน 12 วิ, offline = โหลดไม่ได้ / ภาพว่าง / ภาพ "No signal"
-type Cam = { title: string; lat: number; lng: number; hls: string; img: string; org: string; yt?: string; status?: string };
+type Cam = { title: string; lat: number; lng: number; hls: string; img: string; org: string; yt?: string; ytc?: string; status?: string };
 const T = (ms: number) => AbortSignal.timeout(ms);
 
 async function pool<A, B>(items: A[], n: number, fn: (a: A) => Promise<B>): Promise<B[]> {
@@ -212,8 +212,33 @@ async function ytCams(): Promise<Cam[]> {
   });
 }
 
+// กล้อง YouTube แบบอ้างอิงช่อง (ช่องที่ตัดไลฟ์เป็นช่วง เปลี่ยน video id ทุกไม่กี่ ชม.)
+// ฝังด้วย embed/live_stream?channel= ให้ YouTube เล่นไลฟ์ปัจจุบันเอง id ตายก็ไม่พัง
+const YTC: [string, string, number, number][] = [
+  ["UCOQ8-W-fg0tZZTwJJDq62mA", "(จ.สุโขทัย) ปตร.แม่น้ำยม หาดสะพานจันทร์", 17.0130, 99.8210],
+];
+async function ytcCams(): Promise<Cam[]> {
+  return await pool(YTC, 3, async ([cid, title, lat, lng]) => {
+    let status = "offline";
+    try {
+      // cookie CONSENT/SOCS ข้ามหน้า consent; edge บางครั้งยังได้หน้า bot/consent จึงลองซ้ำ
+      let h = "";
+      for (let k = 0; k < 3; k++) {
+        const r = await fetch(`https://www.youtube.com/channel/${cid}/live`, { headers: { "User-Agent": "Mozilla/5.0", "Accept-Language": "en", Cookie: "CONSENT=YES+1; SOCS=CAI" }, signal: T(10000) }).catch(() => null);
+        h = r?.ok ? await r.text() : "";
+        if (/"isLive":(true|false)|"playabilityStatus"/.test(h)) break;
+        await new Promise((ok) => setTimeout(ok, 2000 * (k + 1)));
+      }
+      // edge ไม่ใส่ canonical/isLiveNow แต่มี "isLive":true เมื่อกำลังไลฟ์จริง
+      if (/"isLive":true/.test(h) && !/"playableInEmbed":false/.test(h)) status = "live";
+    } catch { /* offline */ }
+    return { title, lat, lng, hls: "", img: "", ytc: cid, org: "YouTube Live", status };
+  });
+}
+
 async function cams() {
   const ytP = ytCams().catch(() => [] as Cam[]);
+  const ytcP = ytcCams().catch(() => [] as Cam[]);
   const egatP = egatCams().catch(() => [] as Cam[]);
   const [j, doh] = await Promise.all([
     fetch("https://traffic.longdo.com/camera.json", { signal: T(15000) }).then((r) => r.json()),
@@ -245,7 +270,7 @@ async function cams() {
   hashes.forEach((h) => h && (freq[h] = (freq[h] || 0) + 1));
   imgs.forEach((c, i) => (c.status = hashes[i] && freq[hashes[i]] < 3 ? "live" : "offline"));
 
-  list.push(...await ytP, ...await egatP);  // ตรวจสถานะของตัวเองแล้ว ไม่ต้องผ่านขั้น hls/ภาพนิ่ง
+  list.push(...await ytP, ...await ytcP, ...await egatP);  // ตรวจสถานะของตัวเองแล้ว ไม่ต้องผ่านขั้น hls/ภาพนิ่ง
   const counts: Record<string, number> = {};
   list.forEach((c) => (counts[c.status!] = (counts[c.status!] || 0) + 1));
   return { updated: new Date().toISOString(), counts, items: list };
