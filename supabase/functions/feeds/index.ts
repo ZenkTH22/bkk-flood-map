@@ -72,7 +72,7 @@ async function news() {
 // ===== กล้อง: ตรวจสุขภาพทุกตัวก่อนส่งให้แผนที่ =====
 // live = playlist เดินต่อเนื่อง, suspended = ต้นทางปิด (tempsus / ENDLIST),
 // frozen = playlist ไม่ขยับใน 12 วิ, offline = โหลดไม่ได้ / ภาพว่าง / ภาพ "No signal"
-type Cam = { title: string; lat: number; lng: number; hls: string; img: string; org: string; status?: string };
+type Cam = { title: string; lat: number; lng: number; hls: string; img: string; org: string; yt?: string; status?: string };
 const T = (ms: number) => AbortSignal.timeout(ms);
 
 async function pool<A, B>(items: A[], n: number, fn: (a: A) => Promise<B>): Promise<B[]> {
@@ -128,7 +128,60 @@ async function dohCams(): Promise<Cam[]> {
   return per.flat().filter((c) => !seen.has(c.hls) && seen.add(c.hls));
 }
 
+// กล้อง YouTube Live ที่ตั้งประจำจุดในไทย (เอกชน/ร้านค้า เปิดสาธารณะ) พิกัดเป็นค่าประมาณจากชื่อสถานที่
+// ช่อง 24/7 บางช่องเปลี่ยน video id เมื่อเริ่มสตรีมใหม่ → ตรวจ isLiveNow ทุกรอบ ตัวที่ตายจะถูกซ่อนเอง
+const YT: [string, string, number, number][] = [
+  ["a_bUVExv_Cg", "(กรุงเทพมหานคร) ถ.เพชรบุรี", 13.7503, 100.5400],
+  ["Q71sLS8h9a4", "(กรุงเทพมหานคร) สุขุมวิท ซอย 19", 13.7385, 100.5608],
+  ["UemFRPrl1hk", "(กรุงเทพมหานคร) สุขุมวิท ซอย 11", 13.7430, 100.5555],
+  ["OsjwtFXkVoc", "(จ.ระยอง) ถ.จันทอุดม", 12.6810, 101.2780],
+  ["cnGqGE5B8GI", "(จ.ชลบุรี) พัทยาใต้", 12.9270, 100.8720],
+  ["Qa5LqU9xxtc", "(จ.ชลบุรี) ถ.เลียบหาดพัทยา", 12.9360, 100.8830],
+  ["zKmXMNQ4rEs", "(จ.ชลบุรี) หาดวงศ์อมาตย์ พัทยา", 12.9690, 100.8870],
+  ["_nvG0c9keWI", "(จ.ภูเก็ต) ถ.สายน้ำเย็น ป่าตอง", 7.8920, 98.2990],
+  ["zsmvEf_PTpY", "(จ.ภูเก็ต) แหลมพันวา", 7.8060, 98.4070],
+  ["PPJ55qdY3pw", "(จ.ประจวบคีรีขันธ์) หาดหัวหิน", 12.5690, 99.9590],
+  ["3N3ZwIB_X4Y", "(จ.สุราษฎร์ธานี) คริสตัลเบย์ ละไม เกาะสมุย", 9.4870, 100.0660],
+  ["Fw9hgttWzIg", "(จ.สุราษฎร์ธานี) หาดคริสตัลเบย์ ละไม เกาะสมุย", 9.4860, 100.0655],
+  ["Szx0K7gZBx8", "(จ.สุราษฎร์ธานี) วิลล่าเต่า ละไม เกาะสมุย", 9.4750, 100.0600],
+  ["Tpj0cmMVOd0", "(จ.สุราษฎร์ธานี) หาดละไม เกาะสมุย", 9.4700, 100.0480],
+  ["xz0WEWxhHZY", "(จ.สุราษฎร์ธานี) หาดละไมใต้ เกาะสมุย", 9.4640, 100.0470],
+  ["CSp55hSd_6A", "(จ.สุราษฎร์ธานี) หมู่บ้านชาวประมงบ่อผุด เกาะสมุย", 9.5580, 100.0270],
+  ["bbBGNNPu0rg", "(จ.สุราษฎร์ธานี) ถนนบ่อผุด เกาะสมุย", 9.5582, 100.0290],
+  ["yFgVmioYkys", "(จ.สุราษฎร์ธานี) ซอยกรีนแมงโก้ เฉวง เกาะสมุย", 9.5370, 100.0610],
+  ["DwKCna1mumk", "(จ.สุราษฎร์ธานี) ซอยกรีนแมงโก้ 2 เฉวง เกาะสมุย", 9.5372, 100.0612],
+  ["5ooiCHRoP18", "(จ.สุราษฎร์ธานี) ถ.เฉวง เกาะสมุย", 9.5330, 100.0620],
+  ["Jv_2vPCbZUo", "(จ.สุราษฎร์ธานี) ถ.เฉวงใต้ เกาะสมุย", 9.5320, 100.0625],
+  ["_TTK7VxTyCA", "(จ.สุราษฎร์ธานี) ตลาดบันยัน เกาะสมุย", 9.5350, 100.0600],
+  ["z50dAep3lvA", "(จ.สุราษฎร์ธานี) พระใหญ่ เกาะสมุย", 9.5710, 100.0600],
+  ["MW3fisTCXRQ", "(จ.สุราษฎร์ธานี) หาดริ้น เกาะพะงัน", 9.6780, 100.0640],
+];
+async function ytCams(): Promise<Cam[]> {
+  // ยิงทีละ 3 + ลองซ้ำ: YouTube จำกัดความถี่จาก IP ของ Supabase
+  const page = async (id: string) => {
+    for (let k = 0; k < 3; k++) {
+      const r = await fetch(`https://www.youtube.com/watch?v=${id}`, { headers: { "User-Agent": "Mozilla/5.0", "Accept-Language": "en" }, signal: T(10000) }).catch(() => null);
+      const h = r?.ok ? await r.text() : "";
+      if (/"isLiveNow"|"playableInEmbed"/.test(h)) return h;
+      await new Promise((ok) => setTimeout(ok, 2000 * (k + 1)));
+    }
+    return "";
+  };
+  return await pool(YT, 3, async ([id, title, lat, lng]) => {
+    let status = "offline";
+    try {
+      const h = await page(id);
+      if (/"playableInEmbed":false/.test(h)) status = "suspended";  // เจ้าของปิดการฝัง เล่นในหน้าเราไม่ได้
+      else if (/"isLiveNow":true/.test(h)) status = "live";
+      // YouTube บล็อก IP / หน้า consent → ดูไม่ออก ใช้ oEmbed ยืนยันว่าวิดีโอยังอยู่แทน
+      else if (!/"isLiveNow"/.test(h) && (await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${id}`, { signal: T(8000) })).ok) status = "live";
+    } catch { /* offline */ }
+    return { title, lat, lng, hls: "", img: "", yt: id, org: "YouTube Live", status };
+  });
+}
+
 async function cams() {
+  const ytP = ytCams().catch(() => [] as Cam[]);
   const [j, doh] = await Promise.all([
     fetch("https://traffic.longdo.com/camera.json", { signal: T(15000) }).then((r) => r.json()),
     dohCams().catch(() => [] as Cam[]),
@@ -159,6 +212,7 @@ async function cams() {
   hashes.forEach((h) => h && (freq[h] = (freq[h] || 0) + 1));
   imgs.forEach((c, i) => (c.status = hashes[i] && freq[hashes[i]] < 3 ? "live" : "offline"));
 
+  list.push(...await ytP);  // ตรวจสถานะของตัวเองแล้ว ไม่ต้องผ่านขั้น hls/ภาพนิ่ง
   const counts: Record<string, number> = {};
   list.forEach((c) => (counts[c.status!] = (counts[c.status!] || 0) + 1));
   return { updated: new Date().toISOString(), counts, items: list };
